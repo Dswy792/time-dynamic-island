@@ -234,6 +234,7 @@ INT_PTR CALLBACK SettingsDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lPar
             UpdateWindowPosition(g_isHovering);
             InvalidateRect(g_hwnd, NULL, TRUE);
 
+            EndDialog(hDlg, IDOK);
             return TRUE;
         }
         break;
@@ -352,7 +353,7 @@ INT_PTR CALLBACK SettingsDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lPar
             return TRUE;
         }
         break;
-        }
+        }  // 关闭 switch(LOWORD(wParam))
         break;
 
     case WM_CLOSE:
