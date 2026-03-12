@@ -47,6 +47,9 @@ void UpdateWindowPosition(bool expanded)
     SetWindowPos(g_hwnd, HWND_TOPMOST, x, y, width, height,
                  SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
 
+    // 创建窗口区域对象
+    // 注意：SetWindowRgn 会复制区域对象，系统会在窗口销毁时自动清理
+    // 我们创建的 hRgn 所有权已转移给系统，不需要手动删除
     int radius = height / 2 * 15 / 10;
     HRGN hRgn = CreateRoundRectRgn(0, 0, width, height, radius, radius);
     SetWindowRgn(g_hwnd, hRgn, TRUE);
@@ -80,6 +83,9 @@ void UpdateWindowPositionWithY(int y)
     SetWindowPos(g_hwnd, HWND_TOPMOST, x, y, width, height,
                  SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
 
+    // 创建窗口区域对象
+    // 注意：SetWindowRgn 会复制区域对象，系统会在窗口销毁时自动清理
+    // 我们创建的 hRgn 所有权已转移给系统，不需要手动删除
     int radius = height / 2 * 15 / 10;
     HRGN hRgn = CreateRoundRectRgn(0, 0, width, height, radius, radius);
     SetWindowRgn(g_hwnd, hRgn, TRUE);

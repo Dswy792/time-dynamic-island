@@ -18,14 +18,16 @@ void SetAutoStartup()
                         0, NULL, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, NULL, &hKey, NULL) == ERROR_SUCCESS)
     {
         wchar_t path[MAX_PATH];
-        GetModuleFileNameW(NULL, path, MAX_PATH);
-        std::wstring fullPath = L"\"";
-        fullPath += path;
-        fullPath += L"\"";
+        DWORD result = GetModuleFileNameW(NULL, path, MAX_PATH);
+        if (result > 0 && result < MAX_PATH) {
+            std::wstring fullPath = L"\"";
+            fullPath += path;
+            fullPath += L"\"";
 
-        RegSetValueExW(hKey, L"DynamicIsland", 0, REG_SZ,
-                       reinterpret_cast<const BYTE *>(fullPath.c_str()),
-                       (DWORD)((fullPath.length() + 1) * sizeof(wchar_t)));
+            RegSetValueExW(hKey, L"DynamicIsland", 0, REG_SZ,
+                           reinterpret_cast<const BYTE *>(fullPath.c_str()),
+                           (DWORD)((fullPath.length() + 1) * sizeof(wchar_t)));
+        }
         RegCloseKey(hKey);
     }
 }

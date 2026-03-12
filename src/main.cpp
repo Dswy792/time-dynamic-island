@@ -40,7 +40,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Timer 2: Auto-hide delay timer
             if (g_autoHide && g_waitingForHide && !g_isAnimating)
             {
-                g_isHidden = true; // Mark as hidden
+                KillTimer(g_hwnd, 2);
+                g_isHidden = true;
                 g_waitingForHide = false;
                 StartHideAnimation();
             }
@@ -114,6 +115,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         KillTimer(hwnd, 2);
         KillTimer(hwnd, 3);
         KillTimer(hwnd, 4);
+        // 销毁全局字体对象
+        if (g_hFont != nullptr) {
+            DeleteObject(g_hFont);
+            g_hFont = nullptr;
+        }
         PostQuitMessage(0);
         return 0;
     }
@@ -129,12 +135,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     UNREFERENCED_PARAMETER(lpCmdLine);
     UNREFERENCED_PARAMETER(nCmdShow);
 
-    // Temporarily disable mutex check for testing
-    // HANDLE hMutex = CreateMutexW(NULL, TRUE, L"DynamicIsland_Mutex");
-    // if (GetLastError() == ERROR_ALREADY_EXISTS) {
-    //     MessageBoxW(NULL, L"Dynamic Island is already running!", L"Info", MB_OK | MB_ICONINFORMATION);
-    //     return 0;
-    // }
+    // 单实例保护
+    HANDLE hMutex = CreateMutexW(NULL, TRUE, L"DynamicIsland_Mutex");
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        MessageBoxW(NULL, L"Dynamic Island is already running!", L"Info", MB_OK | MB_ICONINFORMATION);
+        if (hMutex) CloseHandle(hMutex);
+        return 0;
+    }
 
     CoInitialize(NULL);
     SetAutoStartup();

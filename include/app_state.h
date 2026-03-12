@@ -4,6 +4,7 @@
 
 extern HWND g_hwnd;
 extern HWND g_settingsDlg;
+extern HFONT g_hFont;  // 全局字体对象缓存
 
 extern bool g_use24Hour;
 extern bool g_showDate;
@@ -27,9 +28,6 @@ extern const int SIZE_HEIGHT[3];
 extern int g_currentX;
 extern int g_currentY;
 extern int g_hiddenY;
-
-extern UINT_PTR g_hideTimer;
-extern bool g_hideTimerActive;
 
 extern const int MOUSE_CHECK_INTERVAL;
 

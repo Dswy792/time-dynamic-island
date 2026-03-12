@@ -27,15 +27,24 @@ void RenderWindow()
     std::wstring timeStr = GetTimeString();
     std::wstring displayStr = dateStr + L"  " + timeStr;
 
-    int fontWeight = g_boldFont ? FW_BOLD : FW_NORMAL;
-    HFONT font = CreateFontW(
-        -g_fontSize,
-        0, 0, 0, fontWeight, FALSE, FALSE, FALSE,
-        ANSI_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS,
-        ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-        L"Microsoft YaHei UI");
+    // 根据显示内容动态调整字体大小
+    int actualFontSize = g_fontSize;
+    if (g_showYear) {
+        actualFontSize = g_fontSize - 2;  // 显示年份时减小 2 个字号
+    }
 
-    HFONT oldFont = (HFONT)SelectObject(hdc, font);
+    // 如果字体大小变化或字体未创建，重新创建字体
+    if (g_hFont == nullptr) {
+        int fontWeight = g_boldFont ? FW_BOLD : FW_NORMAL;
+        g_hFont = CreateFontW(
+            -actualFontSize,
+            0, 0, 0, fontWeight, FALSE, FALSE, FALSE,
+            ANSI_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS,
+            ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+            L"Microsoft YaHei UI");
+    }
+
+    HFONT oldFont = (HFONT)SelectObject(hdc, g_hFont);
     SetTextColor(hdc, textColor);
     SetBkMode(hdc, TRANSPARENT);
     SetTextAlign(hdc, TA_CENTER | TA_BASELINE);
@@ -47,7 +56,6 @@ void RenderWindow()
     TextOutW(hdc, centerX, centerY, displayStr.c_str(), (int)displayStr.length());
 
     SelectObject(hdc, oldFont);
-    DeleteObject(font);
 
     EndPaint(g_hwnd, &ps);
 }

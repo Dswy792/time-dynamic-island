@@ -8,6 +8,8 @@
 #include "layout.h"
 #include "resource.h"
 
+static bool g_prevAutoHide = false;
+
 void LoadSettings()
 {
     HKEY hKey;
@@ -15,29 +17,53 @@ void LoadSettings()
     {
         DWORD size;
         size = sizeof(g_use24Hour);
-        RegQueryValueExW(hKey, L"Use24Hour", NULL, NULL, reinterpret_cast<LPBYTE>(&g_use24Hour), &size);
+        if (RegQueryValueExW(hKey, L"Use24Hour", NULL, NULL, reinterpret_cast<LPBYTE>(&g_use24Hour), &size) != ERROR_SUCCESS)
+            g_use24Hour = true;  // 默认值
+        
         size = sizeof(g_showDate);
-        RegQueryValueExW(hKey, L"ShowDate", NULL, NULL, reinterpret_cast<LPBYTE>(&g_showDate), &size);
+        if (RegQueryValueExW(hKey, L"ShowDate", NULL, NULL, reinterpret_cast<LPBYTE>(&g_showDate), &size) != ERROR_SUCCESS)
+            g_showDate = true;  // 默认值
+        
         size = sizeof(g_showYear);
-        RegQueryValueExW(hKey, L"ShowYear", NULL, NULL, reinterpret_cast<LPBYTE>(&g_showYear), &size);
+        if (RegQueryValueExW(hKey, L"ShowYear", NULL, NULL, reinterpret_cast<LPBYTE>(&g_showYear), &size) != ERROR_SUCCESS)
+            g_showYear = false;  // 默认值
+        
         size = sizeof(g_showSeconds);
-        RegQueryValueExW(hKey, L"ShowSeconds", NULL, NULL, reinterpret_cast<LPBYTE>(&g_showSeconds), &size);
+        if (RegQueryValueExW(hKey, L"ShowSeconds", NULL, NULL, reinterpret_cast<LPBYTE>(&g_showSeconds), &size) != ERROR_SUCCESS)
+            g_showSeconds = true;  // 默认值
+        
         size = sizeof(g_theme);
-        RegQueryValueExW(hKey, L"Theme", NULL, NULL, reinterpret_cast<LPBYTE>(&g_theme), &size);
+        if (RegQueryValueExW(hKey, L"Theme", NULL, NULL, reinterpret_cast<LPBYTE>(&g_theme), &size) != ERROR_SUCCESS)
+            g_theme = 0;  // 默认值：深色主题
+        
         size = sizeof(g_autoHide);
-        RegQueryValueExW(hKey, L"AutoHide", NULL, NULL, reinterpret_cast<LPBYTE>(&g_autoHide), &size);
+        if (RegQueryValueExW(hKey, L"AutoHide", NULL, NULL, reinterpret_cast<LPBYTE>(&g_autoHide), &size) != ERROR_SUCCESS)
+            g_autoHide = false;  // 默认值
+        
         size = sizeof(g_windowSize);
-        RegQueryValueExW(hKey, L"WindowSize", NULL, NULL, reinterpret_cast<LPBYTE>(&g_windowSize), &size);
+        if (RegQueryValueExW(hKey, L"WindowSize", NULL, NULL, reinterpret_cast<LPBYTE>(&g_windowSize), &size) != ERROR_SUCCESS)
+            g_windowSize = 1;  // 默认值：Medium
+        
         size = sizeof(g_position);
-        RegQueryValueExW(hKey, L"Position", NULL, NULL, reinterpret_cast<LPBYTE>(&g_position), &size);
+        if (RegQueryValueExW(hKey, L"Position", NULL, NULL, reinterpret_cast<LPBYTE>(&g_position), &size) != ERROR_SUCCESS)
+            g_position = 1;  // 默认值：Center
+        
         size = sizeof(g_hideDelayMinutes);
-        RegQueryValueExW(hKey, L"HideDelayMinutes", NULL, NULL, reinterpret_cast<LPBYTE>(&g_hideDelayMinutes), &size);
+        if (RegQueryValueExW(hKey, L"HideDelayMinutes", NULL, NULL, reinterpret_cast<LPBYTE>(&g_hideDelayMinutes), &size) != ERROR_SUCCESS)
+            g_hideDelayMinutes = 0;  // 默认值
+        
         size = sizeof(g_hideDelaySeconds);
-        RegQueryValueExW(hKey, L"HideDelaySeconds", NULL, NULL, reinterpret_cast<LPBYTE>(&g_hideDelaySeconds), &size);
+        if (RegQueryValueExW(hKey, L"HideDelaySeconds", NULL, NULL, reinterpret_cast<LPBYTE>(&g_hideDelaySeconds), &size) != ERROR_SUCCESS)
+            g_hideDelaySeconds = 1;  // 默认值
+        
         size = sizeof(g_fontSize);
-        RegQueryValueExW(hKey, L"FontSize", NULL, NULL, reinterpret_cast<LPBYTE>(&g_fontSize), &size);
+        if (RegQueryValueExW(hKey, L"FontSize", NULL, NULL, reinterpret_cast<LPBYTE>(&g_fontSize), &size) != ERROR_SUCCESS)
+            g_fontSize = 14;  // 默认值
+        
         size = sizeof(g_boldFont);
-        RegQueryValueExW(hKey, L"BoldFont", NULL, NULL, reinterpret_cast<LPBYTE>(&g_boldFont), &size);
+        if (RegQueryValueExW(hKey, L"BoldFont", NULL, NULL, reinterpret_cast<LPBYTE>(&g_boldFont), &size) != ERROR_SUCCESS)
+            g_boldFont = true;  // 默认值
+        
         RegCloseKey(hKey);
     }
 }
@@ -123,43 +149,94 @@ INT_PTR CALLBACK SettingsDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lPar
     }
 
     case WM_COMMAND:
-        switch (LOWORD(wParam))
-        {
+        switch (LOWORD(wParam)) {
         case IDOK:
-            g_use24Hour = IsDlgButtonChecked(hDlg, IDC_RADIO_24HOUR) == BST_CHECKED;
-            g_showDate = IsDlgButtonChecked(hDlg, IDC_CHECK_DATE) == BST_CHECKED;
-            g_showSeconds = IsDlgButtonChecked(hDlg, IDC_CHECK_SECONDS) == BST_CHECKED;
-            g_showYear = IsDlgButtonChecked(hDlg, IDC_CHECK_YEAR) == BST_CHECKED;
-            g_theme = IsDlgButtonChecked(hDlg, IDC_RADIO_DARK) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_LIGHT) == BST_CHECKED ? 1 : 2);
-
-            g_windowSize = IsDlgButtonChecked(hDlg, IDC_RADIO_SMALL) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_MEDIUM) == BST_CHECKED ? 1 : 2);
-
-            g_position = IsDlgButtonChecked(hDlg, IDC_RADIO_LEFT) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_CENTER) == BST_CHECKED ? 1 : 2);
-
-            g_autoHide = IsDlgButtonChecked(hDlg, IDC_CHECK_AUTOHIDE) == BST_CHECKED;
-
-            {
-                wchar_t minText[32];
-                GetWindowTextW(GetDlgItem(hDlg, IDC_EDIT_HIDEDELAY_MIN), minText, 32);
-                g_hideDelayMinutes = _wtoi(minText);
-
-                wchar_t secText[32];
-                GetWindowTextW(GetDlgItem(hDlg, IDC_EDIT_HIDEDELAY_SEC), secText, 32);
-                g_hideDelaySeconds = _wtoi(secText);
-            }
-
+        {
+            bool oldAutoHide = g_autoHide;
+            
+            // 先读取所有新值
+            bool newUse24Hour = (IsDlgButtonChecked(hDlg, IDC_RADIO_24HOUR) == BST_CHECKED);
+            bool newShowDate = (IsDlgButtonChecked(hDlg, IDC_CHECK_DATE) == BST_CHECKED);
+            bool newShowSeconds = (IsDlgButtonChecked(hDlg, IDC_CHECK_SECONDS) == BST_CHECKED);
+            bool newShowYear = (IsDlgButtonChecked(hDlg, IDC_CHECK_YEAR) == BST_CHECKED);
+            int newTheme = IsDlgButtonChecked(hDlg, IDC_RADIO_DARK) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_LIGHT) == BST_CHECKED ? 1 : 2);
+            int newWindowSize = IsDlgButtonChecked(hDlg, IDC_RADIO_SMALL) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_MEDIUM) == BST_CHECKED ? 1 : 2);
+            int newPosition = IsDlgButtonChecked(hDlg, IDC_RADIO_LEFT) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_CENTER) == BST_CHECKED ? 1 : 2);
+            bool newAutoHide = (IsDlgButtonChecked(hDlg, IDC_CHECK_AUTOHIDE) == BST_CHECKED);
+            
+            wchar_t minText[32];
+            GetWindowTextW(GetDlgItem(hDlg, IDC_EDIT_HIDEDELAY_MIN), minText, 32);
+            int newHideDelayMinutes = _wtoi(minText);
+            
+            wchar_t secText[32];
+            GetWindowTextW(GetDlgItem(hDlg, IDC_EDIT_HIDEDELAY_SEC), secText, 32);
+            int newHideDelaySeconds = _wtoi(secText);
+            
             wchar_t fontSizeText[32];
             GetWindowTextW(GetDlgItem(hDlg, IDC_EDIT_FONTSIZE), fontSizeText, 32);
-            g_fontSize = _wtoi(fontSizeText);
-
-            g_boldFont = IsDlgButtonChecked(hDlg, IDC_CHECK_BOLD) == BST_CHECKED;
-
+            int newFontSize = _wtoi(fontSizeText);
+            
+            bool newBoldFont = (IsDlgButtonChecked(hDlg, IDC_CHECK_BOLD) == BST_CHECKED);
+            
+            // 检查是否需要重建字体
+            if (g_fontSize != newFontSize || g_boldFont != newBoldFont || g_showYear != newShowYear) {
+                if (g_hFont != nullptr) {
+                    DeleteObject(g_hFont);
+                    g_hFont = nullptr;
+                }
+            }
+            
+            // 更新全局变量
+            g_use24Hour = newUse24Hour;
+            g_showDate = newShowDate;
+            g_showSeconds = newShowSeconds;
+            g_showYear = newShowYear;
+            g_theme = newTheme;
+            g_windowSize = newWindowSize;
+            g_position = newPosition;
+            g_autoHide = newAutoHide;
+            g_hideDelayMinutes = newHideDelayMinutes;
+            g_hideDelaySeconds = newHideDelaySeconds;
+            g_fontSize = newFontSize;
+            g_boldFont = newBoldFont;
+            
             SaveSettings();
+            
+            if (oldAutoHide && !g_autoHide)
+            {
+                KillTimer(g_hwnd, 2);
+                KillTimer(g_hwnd, 4);
+                g_isHidden = false;
+                g_isHovering = false;
+                g_isAnimating = false;
+                g_waitingForHide = false;
+                g_isHiding = false;
+                // 重置动画位置
+                RECT workArea;
+                SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
+                g_animationY = workArea.top + 10;
+            }
+
+            if (!oldAutoHide && g_autoHide)
+            {
+                g_isHidden = false;
+                g_isHovering = false;
+                g_isAnimating = false;
+                g_waitingForHide = false;
+                g_isHiding = false;
+                // 重置动画位置
+                RECT workArea;
+                SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
+                g_animationY = workArea.top + 10;
+                UpdateWindowPosition(false);
+            }
 
             UpdateWindowPosition(g_isHovering);
             InvalidateRect(g_hwnd, NULL, TRUE);
-            EndDialog(hDlg, IDOK);
+
             return TRUE;
+        }
+        break;
 
         case IDCANCEL:
             EndDialog(hDlg, IDCANCEL);
@@ -189,43 +266,94 @@ INT_PTR CALLBACK SettingsDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lPar
             return TRUE;
 
         case IDC_BTN_APPLY:
-            g_use24Hour = IsDlgButtonChecked(hDlg, IDC_RADIO_24HOUR) == BST_CHECKED;
-            g_showDate = IsDlgButtonChecked(hDlg, IDC_CHECK_DATE) == BST_CHECKED;
-            g_showSeconds = IsDlgButtonChecked(hDlg, IDC_CHECK_SECONDS) == BST_CHECKED;
-            g_showYear = IsDlgButtonChecked(hDlg, IDC_CHECK_YEAR) == BST_CHECKED;
-            g_theme = IsDlgButtonChecked(hDlg, IDC_RADIO_DARK) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_LIGHT) == BST_CHECKED ? 1 : 2);
-
-            g_windowSize = IsDlgButtonChecked(hDlg, IDC_RADIO_SMALL) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_MEDIUM) == BST_CHECKED ? 1 : 2);
-
-            g_position = IsDlgButtonChecked(hDlg, IDC_RADIO_LEFT) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_CENTER) == BST_CHECKED ? 1 : 2);
-
-            g_autoHide = IsDlgButtonChecked(hDlg, IDC_CHECK_AUTOHIDE) == BST_CHECKED;
-
-            {
-                wchar_t minText2[32];
-                GetWindowTextW(GetDlgItem(hDlg, IDC_EDIT_HIDEDELAY_MIN), minText2, 32);
-                g_hideDelayMinutes = _wtoi(minText2);
-
-                wchar_t secText2[32];
-                GetWindowTextW(GetDlgItem(hDlg, IDC_EDIT_HIDEDELAY_SEC), secText2, 32);
-                g_hideDelaySeconds = _wtoi(secText2);
-            }
-
+        {
+            bool oldAutoHide2 = g_autoHide;
+            
+            // 先读取所有新值
+            bool newUse24Hour = (IsDlgButtonChecked(hDlg, IDC_RADIO_24HOUR) == BST_CHECKED);
+            bool newShowDate = (IsDlgButtonChecked(hDlg, IDC_CHECK_DATE) == BST_CHECKED);
+            bool newShowSeconds = (IsDlgButtonChecked(hDlg, IDC_CHECK_SECONDS) == BST_CHECKED);
+            bool newShowYear = (IsDlgButtonChecked(hDlg, IDC_CHECK_YEAR) == BST_CHECKED);
+            int newTheme = IsDlgButtonChecked(hDlg, IDC_RADIO_DARK) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_LIGHT) == BST_CHECKED ? 1 : 2);
+            int newWindowSize = IsDlgButtonChecked(hDlg, IDC_RADIO_SMALL) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_MEDIUM) == BST_CHECKED ? 1 : 2);
+            int newPosition = IsDlgButtonChecked(hDlg, IDC_RADIO_LEFT) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_CENTER) == BST_CHECKED ? 1 : 2);
+            bool newAutoHide = (IsDlgButtonChecked(hDlg, IDC_CHECK_AUTOHIDE) == BST_CHECKED);
+            
+            wchar_t minText2[32];
+            GetWindowTextW(GetDlgItem(hDlg, IDC_EDIT_HIDEDELAY_MIN), minText2, 32);
+            int newHideDelayMinutes = _wtoi(minText2);
+            
+            wchar_t secText2[32];
+            GetWindowTextW(GetDlgItem(hDlg, IDC_EDIT_HIDEDELAY_SEC), secText2, 32);
+            int newHideDelaySeconds = _wtoi(secText2);
+            
             wchar_t fontSizeText2[32];
             GetWindowTextW(GetDlgItem(hDlg, IDC_EDIT_FONTSIZE), fontSizeText2, 32);
-            g_fontSize = _wtoi(fontSizeText2);
-
-            g_boldFont = IsDlgButtonChecked(hDlg, IDC_CHECK_BOLD) == BST_CHECKED;
-
+            int newFontSize2 = _wtoi(fontSizeText2);
+            
+            bool newBoldFont2 = (IsDlgButtonChecked(hDlg, IDC_CHECK_BOLD) == BST_CHECKED);
+            
+            // 检查是否需要重建字体
+            if (g_fontSize != newFontSize2 || g_boldFont != newBoldFont2 || g_showYear != newShowYear) {
+                if (g_hFont != nullptr) {
+                    DeleteObject(g_hFont);
+                    g_hFont = nullptr;
+                }
+            }
+            
+            // 更新全局变量
+            g_use24Hour = newUse24Hour;
+            g_showDate = newShowDate;
+            g_showSeconds = newShowSeconds;
+            g_showYear = newShowYear;
+            g_theme = newTheme;
+            g_windowSize = newWindowSize;
+            g_position = newPosition;
+            g_autoHide = newAutoHide;
+            g_hideDelayMinutes = newHideDelayMinutes;
+            g_hideDelaySeconds = newHideDelaySeconds;
+            g_fontSize = newFontSize2;
+            g_boldFont = newBoldFont2;
+            
             SaveSettings();
+            
+            if (oldAutoHide2 && !g_autoHide)
+            {
+                KillTimer(g_hwnd, 2);
+                KillTimer(g_hwnd, 4);
+                g_isHidden = false;
+                g_isHovering = false;
+                g_isAnimating = false;
+                g_waitingForHide = false;
+                g_isHiding = false;
+                // 重置动画位置
+                RECT workArea;
+                SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
+                g_animationY = workArea.top + 10;
+            }
+
+            if (!oldAutoHide2 && g_autoHide)
+            {
+                g_isHidden = false;
+                g_isHovering = false;
+                g_isAnimating = false;
+                g_waitingForHide = false;
+                g_isHiding = false;
+                // 重置动画位置
+                RECT workArea;
+                SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
+                g_animationY = workArea.top + 10;
+                UpdateWindowPosition(false);
+            }
 
             UpdateWindowPosition(g_isHovering);
             InvalidateRect(g_hwnd, NULL, TRUE);
 
-            MessageBoxW(hDlg, L"Settings applied successfully!", L"Applied", MB_OK | MB_ICONINFORMATION);
             return TRUE;
         }
-        return TRUE;
+        break;
+        }
+        break;
 
     case WM_CLOSE:
         EndDialog(hDlg, IDCANCEL);

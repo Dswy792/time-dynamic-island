@@ -2,6 +2,7 @@
 
 HWND g_hwnd = nullptr;
 HWND g_settingsDlg = nullptr;
+HFONT g_hFont = nullptr;  // 全局字体对象缓存
 
 bool g_use24Hour = true;
 bool g_showDate = true;
@@ -25,9 +26,6 @@ const int SIZE_HEIGHT[3] = {20, 25, 30};
 int g_currentX = 0;
 int g_currentY = 10;
 int g_hiddenY = -50;
-
-UINT_PTR g_hideTimer = 0;
-bool g_hideTimerActive = false;
 
 const int MOUSE_CHECK_INTERVAL = 100;
 
