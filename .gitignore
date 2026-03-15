@@ -13,6 +13,8 @@ obj/
 *.pdb
 
 # Executables (ensure none are created)
+# Exception: Allow DynamicIsland.exe
+!DynamicIsland.exe
 *.exe
 *.dll
 *.so
