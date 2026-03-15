@@ -58,7 +58,8 @@ time-dynamic-island/
 │   └── time_theme.h
 ├── resources/
 │   ├── DynamicIsland.rc
-│   └── resource.h
+│   ├── resource.h
+│   └── app.ico
 ├── src/
 │   ├── actions.cpp
 │   ├── animation.cpp
@@ -79,7 +80,7 @@ time-dynamic-island/
 - 🕐 **实时时间显示**：每秒自动更新，无需鼠标悬停
 - 🎨 **胶囊形状**：两端半圆 + 中间长方形的完美跑道形状
 - 📅 **可配置显示**：日期、年份、秒钟可选
-- 🖊️ **柔和字体**：圆润流畅的 Segoe UI 字体，抗锯齿渲染
+- 🖊️ **柔和字体**：圆润流畅的 Microsoft YaHei UI 字体，抗锯齿渲染
 - 🎯 **小巧精致**：120x25 像素（正常），145x30 像素（悬停）
 - 🖱️ **鼠标交互**：
   - 悬停时放大
@@ -87,7 +88,8 @@ time-dynamic-island/
   - **右键点击：打开灵动岛设置**
 - 🎨 **多主题支持**：深色、浅色、跟随系统
 - 🚀 **开机自启**：自动随系统启动
-- 💾 **极低内存占用**：仅约 2MB
+- 💾 **极低内存占用**：仅约 3MB
+- 🎨 **应用程序图标**：蓝色圆形带白色"T"的专属图标
 
 ## 🚀 快速开始
 
@@ -106,7 +108,7 @@ time-dynamic-island/
    .\DynamicIsland.exe
    ```
 
-## �️ 系统要求
+## 🖥️ 系统要求
 
 ### 编译器选项
 
@@ -141,7 +143,7 @@ link.exe /OUT:DynamicIsland.exe main.obj shell32.lib user32.lib gdi32.lib ole32.
 ### 最低要求
 
 - **系统**：Windows 10/11
-- **内存**：约 2MB
+- **内存**：约 3MB
 - **C++ 标准**：C++17 或更高版本
 
 ## 🎯 使用说明
@@ -197,6 +199,13 @@ link.exe /OUT:DynamicIsland.exe main.obj shell32.lib user32.lib gdi32.lib ole32.
 
 - **字号**：可自定义字体大小
 - **粗体**：启用粗体显示
+- **智能适配**：显示年份时自动减小字号，防止文本溢出
+
+### 程序控制
+
+#### 关闭程序
+
+在设置对话框中点击 **Close** 按钮，或在任务管理器中结束 `DynamicIsland` 进程。
 
 ### 显示示例
 
@@ -218,19 +227,6 @@ link.exe /OUT:DynamicIsland.exe main.obj shell32.lib user32.lib gdi32.lib ole32.
 2026/03/10  21:21:21
 ```
 
-### 退出程序
-
-在任务管理器中结束 `DynamicIsland` 进程。
-
-## 🛠️ 技术细节
-
-### 窗口特性
-
-- **形状**：胶囊形区域（`CreateRoundRectRgn`）
-- **样式**：`WS_EX_TOPMOST | WS_EX_TOOLWINDOW`
-- **位置**：屏幕顶部居中
-- **更新**：定时器每秒自动刷新
-
 ## 🛠️ 技术细节
 
 ### 窗口特性
@@ -242,7 +238,8 @@ link.exe /OUT:DynamicIsland.exe main.obj shell32.lib user32.lib gdi32.lib ole32.
 
 ### 渲染优化
 
-- **字体**：Segoe UI，抗锯齿质量（`ANTIALIASED_QUALITY`）
+- **字体缓存**：全局字体对象，避免频繁创建/销毁
+- **字体**：Microsoft YaHei UI，抗锯齿质量（`ANTIALIASED_QUALITY`）
 - **颜色**：
   - 深色主题：背景 `RGB(30, 30, 30)`，文字 `RGB(255, 255, 255)`
   - 浅色主题：背景 `RGB(240, 240, 240)`，文字 `RGB(0, 0, 0)`
@@ -250,12 +247,13 @@ link.exe /OUT:DynamicIsland.exe main.obj shell32.lib user32.lib gdi32.lib ole32.
 
 ### 内存占用
 
-- **空闲时**：\~2MB
-- **渲染时**：\~3MB
+- **空闲时**：~3MB
+- **渲染时**：~4MB
 - **优化措施**：
   - 单线程消息循环
   - 双缓冲渲染
   - GDI 资源及时释放
+  - 字体对象缓存复用
 
 ### 配置存储
 
@@ -280,14 +278,30 @@ HKEY_CURRENT_USER\SOFTWARE\DynamicIsland
 - `FontSize` (DWORD): 字体大小
 - `BoldFont` (DWORD): 粗体字体
 
+### 应用程序图标
+
+- **设计**：蓝色圆形背景 + 白色字母"T"
+- **尺寸**：256x256 像素（可缩放）
+- **位置**：嵌入在资源文件中
+- **显示**：任务栏、文件资源管理器、Alt+Tab 界面
+
 ## 📁 项目结构
 
 ```
 灵动岛/
 ├── src/
-│   └── main.cpp               # 主程序（完整功能）
+│   ├── main.cpp               # 主程序（完整功能）
+│   ├── rendering.cpp          # 渲染逻辑（字体缓存优化）
+│   ├── settings.cpp           # 设置对话框（Close 按钮）
+│   ├── animation.cpp          # 动画逻辑（详细注释）
+│   ├── layout.cpp             # 布局管理
+│   ├── actions.cpp            # 系统操作
+│   ├── time_theme.cpp         # 主题管理
+│   └── app_state.cpp          # 全局状态
+├── include/
+│   └── *.h                    # 头文件
 ├── resources/
-│   ├── DynamicIsland.rc       # 对话框资源
+│   ├── DynamicIsland.rc       # 对话框资源 + 图标
 │   └── resource.h             # 资源头文件
 ├── build.ps1                  # 编译脚本
 ├── DynamicIsland.exe          # 可执行文件
@@ -300,7 +314,7 @@ HKEY_CURRENT_USER\SOFTWARE\DynamicIsland
 
 ### 修改尺寸
 
-编辑 `src/main_iphone.cpp`：
+编辑 `src/main.cpp`：
 
 ```cpp
 const int NORMAL_WIDTH = 120;      // 正常宽度
@@ -311,10 +325,13 @@ const int EXPANDED_HEIGHT = 30;    // 悬停高度
 
 ### 修改字体大小
 
-编辑 `src/main_iphone.cpp` 中的 `RenderWindow()` 函数：
+编辑 `src/rendering.cpp` 中的 `RenderWindow()` 函数：
 
 ```cpp
-int fontSize = MulDiv(14, GetDeviceCaps(memDC, LOGPIXELSY), 72);
+int actualFontSize = g_fontSize;
+if (g_showYear) {
+    actualFontSize = g_fontSize - 2;  // 显示年份时自动减小
+}
 ```
 
 ## ⚠️ 反作弊系统兼容性说明
@@ -419,7 +436,32 @@ int fontSize = MulDiv(14, GetDeviceCaps(memDC, LOGPIXELSY), 72);
 
 ## 📝 更新日志
 
-### 2026-03-11 - 完整功能版本
+### Version 4.0 - 2026-03-15
+
+**✨ 新增功能**：
+- 🎨 **应用程序图标**：蓝色圆形带白色"T"的专属图标
+- 🔘 **Close 按钮**：设置对话框底部新增关闭程序按钮
+- 📝 **代码注释**：动画模块添加详细中文注释
+
+**🐛 Bug 修复**：
+- ✅ 修复 Font Size 更改无效果的问题
+- ✅ 修复 Show Year 切换后字体大小不调整的问题
+- ✅ 修复 OK 按钮不关闭对话框的问题
+- ✅ 修复 84 处编译错误
+- ✅ 修复开启自动隐藏时窗口消失的 Bug
+
+**⚡ 性能优化**：
+- ✅ GDI 字体对象缓存（减少资源创建/销毁）
+- ✅ 字体大小智能适配（显示年份时自动减小）
+- ✅ 注册表操作错误处理
+- ✅ 单实例保护启用
+
+**🔧 代码质量**：
+- ✅ 删除未使用变量
+- ✅ 改进代码注释
+- ✅ 优化代码结构
+
+### Version 2.0 - 2026-03-11
 
 - ✅ 完整的设置对话框（8 个设置组）
 - ✅ 时间格式：24/12 小时制
@@ -450,7 +492,7 @@ int fontSize = MulDiv(14, GetDeviceCaps(memDC, LOGPIXELSY), 72);
 
 ***
 
-**版本**: 2.0 (完整功能版)
-**编译时间**: 约 5-10 秒
-**代码量**: \~900 行 C++ 代码
-**最后更新**: 2026-03-11
+**版本**: 4.0 (图标和优化版)
+**编译时间**：约 5-10 秒
+**代码量**：~1000 行 C++ 代码
+**最后更新**: 2026-03-15

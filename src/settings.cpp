@@ -353,6 +353,11 @@ INT_PTR CALLBACK SettingsDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lPar
             return TRUE;
         }
         break;
+        case IDC_BTN_CLOSE:
+            EndDialog(hDlg, IDCANCEL);
+            PostMessage(g_hwnd, WM_CLOSE, 0, 0);
+            return TRUE;
+
         }  // 关闭 switch(LOWORD(wParam))
         break;
 

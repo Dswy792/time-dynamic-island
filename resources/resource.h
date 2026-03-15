@@ -34,5 +34,9 @@
 #define IDC_EDIT_FONTSIZE   227
 #define IDC_SPIN_FONTSIZE   228
 #define IDC_CHECK_BOLD      229
+#define IDC_BTN_CLOSE       230
+
+// 应用程序图标
+#define IDI_APP_ICON        102
 
 #endif // RESOURCE_H

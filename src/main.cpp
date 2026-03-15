@@ -156,6 +156,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = NULL;
     wc.lpszClassName = L"DynamicIslandClass";
+    // 加载应用程序图标
+    wc.hIcon = (HICON)LoadImageW(hInstance, (LPCWSTR)IDI_APP_ICON, IMAGE_ICON, 32, 32, 0);
+    wc.hIconSm = (HICON)LoadImageW(hInstance, (LPCWSTR)IDI_APP_ICON, IMAGE_ICON, 16, 16, 0);
 
     if (!RegisterClassExW(&wc))
     {
