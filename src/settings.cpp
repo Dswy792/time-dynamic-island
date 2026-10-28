@@ -1,394 +1,231 @@
 #include "settings.h"
 
 #include <windows.h>
-#include <cstdlib>
-#include <stdio.h>
+
+#include <string>
 
 #include "app_state.h"
-#include "layout.h"
-#include "resource.h"
 
-static bool g_prevAutoHide = false;
+namespace
+{
+constexpr DWORD kSettingsVersion = 2;
+
+bool ReadDword(HKEY key, const wchar_t* name, DWORD* value)
+{
+    DWORD type = 0;
+    DWORD size = sizeof(DWORD);
+    DWORD data = 0;
+    if (RegQueryValueExW(key, name, nullptr, &type,
+                         reinterpret_cast<LPBYTE>(&data), &size) != ERROR_SUCCESS)
+        return false;
+    if (type != REG_DWORD || size != sizeof(DWORD))
+        return false;
+    *value = data;
+    return true;
+}
+
+bool ReadBool(HKEY key, const wchar_t* name, bool defaultValue)
+{
+    DWORD value = 0;
+    if (!ReadDword(key, name, &value))
+        return defaultValue;
+    return value != 0;
+}
+
+int ReadInt(HKEY key, const wchar_t* name, int defaultValue)
+{
+    DWORD value = 0;
+    if (!ReadDword(key, name, &value))
+        return defaultValue;
+    return static_cast<int>(value);
+}
+
+void WriteDword(HKEY key, const wchar_t* name, DWORD value)
+{
+    RegSetValueExW(key, name, 0, REG_DWORD,
+                   reinterpret_cast<const BYTE*>(&value), sizeof(value));
+}
+
+void WriteBool(HKEY key, const wchar_t* name, bool value)
+{
+    WriteDword(key, name, value ? 1 : 0);
+}
+
+void WriteInt(HKEY key, const wchar_t* name, int value)
+{
+    WriteDword(key, name, static_cast<DWORD>(value));
+}
+
+int ClampInt(int value, int minimum, int maximum)
+{
+    if (value < minimum)
+        return minimum;
+    if (value > maximum)
+        return maximum;
+    return value;
+}
+
+bool DeleteValue(HKEY key, const wchar_t* name)
+{
+    return RegDeleteValueW(key, name) == ERROR_SUCCESS;
+}
+} // namespace
+
+void ValidateSettings(AppSettings& settings)
+{
+    settings.dateFormat = ClampInt(settings.dateFormat, 0, ISLAND_DATE_COUNT - 1);
+    settings.theme = ClampInt(settings.theme, ISLAND_THEME_DARK, ISLAND_THEME_SYSTEM);
+    settings.windowSize = ClampInt(settings.windowSize, 0, ISLAND_SIZE_COUNT - 1);
+    settings.position = ClampInt(settings.position, ISLAND_POS_LEFT, ISLAND_POS_CUSTOM);
+    settings.fontSize = ClampInt(settings.fontSize, kFontSizeMin, kFontSizeMax);
+    settings.opacity = ClampInt(settings.opacity, kOpacityMin, kOpacityMax);
+    settings.hideDelaySeconds =
+        ClampInt(settings.hideDelaySeconds, kHideDelayMinSeconds, kHideDelayMaxSeconds);
+
+    if (settings.customX < -32000)
+        settings.customX = -100000;
+    if (settings.customY < -32000)
+        settings.customY = -100000;
+
+    // The 12-hour suffix is meaningless when the clock is in 24-hour mode, but
+    // keep the stored preference so it comes back when the user switches back.
+}
 
 void LoadSettings()
 {
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\DynamicIsland", 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    AppSettings settings; // defaults from app_state.h
+
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kSettingsRegistryKey, 0, KEY_READ, &key) ==
+        ERROR_SUCCESS)
     {
-        DWORD size;
-        size = sizeof(g_use24Hour);
-        if (RegQueryValueExW(hKey, L"Use24Hour", NULL, NULL, reinterpret_cast<LPBYTE>(&g_use24Hour), &size) != ERROR_SUCCESS)
-            g_use24Hour = true;  // 默认值
-        
-        size = sizeof(g_showDate);
-        if (RegQueryValueExW(hKey, L"ShowDate", NULL, NULL, reinterpret_cast<LPBYTE>(&g_showDate), &size) != ERROR_SUCCESS)
-            g_showDate = true;  // 默认值
-        
-        size = sizeof(g_showYear);
-        if (RegQueryValueExW(hKey, L"ShowYear", NULL, NULL, reinterpret_cast<LPBYTE>(&g_showYear), &size) != ERROR_SUCCESS)
-            g_showYear = false;  // 默认值
-        
-        size = sizeof(g_showSeconds);
-        if (RegQueryValueExW(hKey, L"ShowSeconds", NULL, NULL, reinterpret_cast<LPBYTE>(&g_showSeconds), &size) != ERROR_SUCCESS)
-            g_showSeconds = true;  // 默认值
-        
-        size = sizeof(g_theme);
-        if (RegQueryValueExW(hKey, L"Theme", NULL, NULL, reinterpret_cast<LPBYTE>(&g_theme), &size) != ERROR_SUCCESS)
-            g_theme = 0;  // 默认值：深色主题
-        
-        size = sizeof(g_autoHide);
-        if (RegQueryValueExW(hKey, L"AutoHide", NULL, NULL, reinterpret_cast<LPBYTE>(&g_autoHide), &size) != ERROR_SUCCESS)
-            g_autoHide = false;  // 默认值
-        
-        size = sizeof(g_windowSize);
-        if (RegQueryValueExW(hKey, L"WindowSize", NULL, NULL, reinterpret_cast<LPBYTE>(&g_windowSize), &size) != ERROR_SUCCESS)
-            g_windowSize = 1;  // 默认值：Medium
-        
-        size = sizeof(g_position);
-        if (RegQueryValueExW(hKey, L"Position", NULL, NULL, reinterpret_cast<LPBYTE>(&g_position), &size) != ERROR_SUCCESS)
-            g_position = 1;  // 默认值：Center
-        
-        size = sizeof(g_hideDelayMinutes);
-        if (RegQueryValueExW(hKey, L"HideDelayMinutes", NULL, NULL, reinterpret_cast<LPBYTE>(&g_hideDelayMinutes), &size) != ERROR_SUCCESS)
-            g_hideDelayMinutes = 0;  // 默认值
-        
-        size = sizeof(g_hideDelaySeconds);
-        if (RegQueryValueExW(hKey, L"HideDelaySeconds", NULL, NULL, reinterpret_cast<LPBYTE>(&g_hideDelaySeconds), &size) != ERROR_SUCCESS)
-            g_hideDelaySeconds = 1;  // 默认值
-        
-        size = sizeof(g_fontSize);
-        if (RegQueryValueExW(hKey, L"FontSize", NULL, NULL, reinterpret_cast<LPBYTE>(&g_fontSize), &size) != ERROR_SUCCESS)
-            g_fontSize = 14;  // 默认值
-        
-        size = sizeof(g_boldFont);
-        if (RegQueryValueExW(hKey, L"BoldFont", NULL, NULL, reinterpret_cast<LPBYTE>(&g_boldFont), &size) != ERROR_SUCCESS)
-            g_boldFont = true;  // 默认值
-        
-        RegCloseKey(hKey);
-    }
-}
+        const DWORD version = static_cast<DWORD>(ReadInt(key, L"SettingsVersion", 0));
 
-void SaveSettings()
-{
-    HKEY hKey;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\DynamicIsland", 0, NULL,
-                        REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS)
-    {
-        RegSetValueExW(hKey, L"Use24Hour", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&g_use24Hour), sizeof(g_use24Hour));
-        RegSetValueExW(hKey, L"ShowDate", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&g_showDate), sizeof(g_showDate));
-        RegSetValueExW(hKey, L"ShowYear", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&g_showYear), sizeof(g_showYear));
-        RegSetValueExW(hKey, L"ShowSeconds", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&g_showSeconds), sizeof(g_showSeconds));
-        RegSetValueExW(hKey, L"Theme", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&g_theme), sizeof(g_theme));
-        RegSetValueExW(hKey, L"AutoHide", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&g_autoHide), sizeof(g_autoHide));
-        RegSetValueExW(hKey, L"WindowSize", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&g_windowSize), sizeof(g_windowSize));
-        RegSetValueExW(hKey, L"Position", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&g_position), sizeof(g_position));
-        RegSetValueExW(hKey, L"HideDelayMinutes", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&g_hideDelayMinutes), sizeof(g_hideDelayMinutes));
-        RegSetValueExW(hKey, L"HideDelaySeconds", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&g_hideDelaySeconds), sizeof(g_hideDelaySeconds));
-        RegSetValueExW(hKey, L"FontSize", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&g_fontSize), sizeof(g_fontSize));
-        RegSetValueExW(hKey, L"BoldFont", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&g_boldFont), sizeof(g_boldFont));
-        RegCloseKey(hKey);
-    }
-}
+        settings.use24Hour = ReadBool(key, L"Use24Hour", settings.use24Hour);
+        settings.showSeconds = ReadBool(key, L"ShowSeconds", settings.showSeconds);
+        settings.showAmPm = ReadBool(key, L"ShowAmPm", settings.showAmPm);
+        settings.showDate = ReadBool(key, L"ShowDate", settings.showDate);
+        settings.showYear = ReadBool(key, L"ShowYear", settings.showYear);
+        settings.showWeekday = ReadBool(key, L"ShowWeekday", settings.showWeekday);
+        settings.dateFormat = ReadInt(key, L"DateFormat", settings.dateFormat);
+        settings.theme = ReadInt(key, L"Theme", settings.theme);
+        settings.windowSize = ReadInt(key, L"WindowSize", settings.windowSize);
+        settings.position = ReadInt(key, L"Position", settings.position);
+        settings.customX = ReadInt(key, L"CustomX", settings.customX);
+        settings.customY = ReadInt(key, L"CustomY", settings.customY);
+        settings.autoHide = ReadBool(key, L"AutoHide", settings.autoHide);
+        settings.hideOnFullscreen =
+            ReadBool(key, L"HideOnFullscreen", settings.hideOnFullscreen);
+        settings.fontSize = ReadInt(key, L"FontSize", settings.fontSize);
+        settings.boldFont = ReadBool(key, L"BoldFont", settings.boldFont);
+        settings.opacity = ReadInt(key, L"Opacity", settings.opacity);
 
-INT_PTR CALLBACK SettingsDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-    UNREFERENCED_PARAMETER(lParam);
-
-    switch (msg)
-    {
-    case WM_INITDIALOG:
-    {
-        RECT rcDlg, rcScreen;
-        GetWindowRect(hDlg, &rcDlg);
-
-        SystemParametersInfo(SPI_GETWORKAREA, 0, &rcScreen, 0);
-
-        int x = rcScreen.left + (rcScreen.right - rcScreen.left - (rcDlg.right - rcDlg.left)) / 2;
-        int y = rcScreen.top + (rcScreen.bottom - rcScreen.top - (rcDlg.bottom - rcDlg.top)) / 2;
-
-        SetWindowPos(hDlg, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE);
-
-        if (g_theme < 0 || g_theme > 2)
-            g_theme = 0;
-
-        CheckRadioButton(hDlg, IDC_RADIO_24HOUR, IDC_RADIO_12HOUR,
-                         g_use24Hour ? IDC_RADIO_24HOUR : IDC_RADIO_12HOUR);
-        CheckDlgButton(hDlg, IDC_CHECK_DATE, g_showDate ? BST_CHECKED : BST_UNCHECKED);
-        CheckDlgButton(hDlg, IDC_CHECK_SECONDS, g_showSeconds ? BST_CHECKED : BST_UNCHECKED);
-        CheckDlgButton(hDlg, IDC_CHECK_YEAR, g_showYear ? BST_CHECKED : BST_UNCHECKED);
-
-        CheckRadioButton(hDlg, IDC_RADIO_DARK, IDC_RADIO_SYSTEM,
-                         g_theme == 0 ? IDC_RADIO_DARK : (g_theme == 1 ? IDC_RADIO_LIGHT : IDC_RADIO_SYSTEM));
-
-        CheckRadioButton(hDlg, IDC_RADIO_SMALL, IDC_RADIO_LARGE,
-                         g_windowSize == 0 ? IDC_RADIO_SMALL : (g_windowSize == 1 ? IDC_RADIO_MEDIUM : IDC_RADIO_LARGE));
-
-        CheckRadioButton(hDlg, IDC_RADIO_LEFT, IDC_RADIO_RIGHT,
-                         g_position == 0 ? IDC_RADIO_LEFT : (g_position == 1 ? IDC_RADIO_CENTER : IDC_RADIO_RIGHT));
-
-        CheckDlgButton(hDlg, IDC_CHECK_AUTOHIDE, g_autoHide ? BST_CHECKED : BST_UNCHECKED);
-
-        HWND hMinEdit = GetDlgItem(hDlg, IDC_EDIT_HIDEDELAY_MIN);
-        wchar_t minText[32];
-        swprintf_s(minText, 32, L"%d", g_hideDelayMinutes);
-        SetWindowTextW(hMinEdit, minText);
-
-        HWND hSecEdit = GetDlgItem(hDlg, IDC_EDIT_HIDEDELAY_SEC);
-        wchar_t secText[32];
-        swprintf_s(secText, 32, L"%d", g_hideDelaySeconds);
-        SetWindowTextW(hSecEdit, secText);
-
-        HWND hFontEdit = GetDlgItem(hDlg, IDC_EDIT_FONTSIZE);
-        wchar_t fontSizeText[32];
-        swprintf_s(fontSizeText, 32, L"%d", g_fontSize);
-        SetWindowTextW(hFontEdit, fontSizeText);
-
-        CheckDlgButton(hDlg, IDC_CHECK_BOLD, g_boldFont ? BST_CHECKED : BST_UNCHECKED);
-
-        return TRUE;
-    }
-
-    case WM_COMMAND:
-        switch (LOWORD(wParam)) {
-        case IDOK:
+        if (version >= 2)
         {
-            bool oldAutoHide = g_autoHide;
-            
-            // 先读取所有新值
-            bool newUse24Hour = (IsDlgButtonChecked(hDlg, IDC_RADIO_24HOUR) == BST_CHECKED);
-            bool newShowDate = (IsDlgButtonChecked(hDlg, IDC_CHECK_DATE) == BST_CHECKED);
-            bool newShowSeconds = (IsDlgButtonChecked(hDlg, IDC_CHECK_SECONDS) == BST_CHECKED);
-            bool newShowYear = (IsDlgButtonChecked(hDlg, IDC_CHECK_YEAR) == BST_CHECKED);
-            int newTheme = IsDlgButtonChecked(hDlg, IDC_RADIO_DARK) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_LIGHT) == BST_CHECKED ? 1 : 2);
-            int newWindowSize = IsDlgButtonChecked(hDlg, IDC_RADIO_SMALL) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_MEDIUM) == BST_CHECKED ? 1 : 2);
-            int newPosition = IsDlgButtonChecked(hDlg, IDC_RADIO_LEFT) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_CENTER) == BST_CHECKED ? 1 : 2);
-            bool newAutoHide = (IsDlgButtonChecked(hDlg, IDC_CHECK_AUTOHIDE) == BST_CHECKED);
-            
-            wchar_t minText[32];
-            GetWindowTextW(GetDlgItem(hDlg, IDC_EDIT_HIDEDELAY_MIN), minText, 32);
-            int newHideDelayMinutes = _wtoi(minText);
-            
-            wchar_t secText[32];
-            GetWindowTextW(GetDlgItem(hDlg, IDC_EDIT_HIDEDELAY_SEC), secText, 32);
-            int newHideDelaySeconds = _wtoi(secText);
-            
-            wchar_t fontSizeText[32];
-            GetWindowTextW(GetDlgItem(hDlg, IDC_EDIT_FONTSIZE), fontSizeText, 32);
-            int newFontSize = _wtoi(fontSizeText);
-            
-            bool newBoldFont = (IsDlgButtonChecked(hDlg, IDC_CHECK_BOLD) == BST_CHECKED);
-            
-            // 检查是否需要重建字体
-            if (g_fontSize != newFontSize || g_boldFont != newBoldFont || g_showYear != newShowYear) {
-                if (g_hFont != nullptr) {
-                    DeleteObject(g_hFont);
-                    g_hFont = nullptr;
-                }
-            }
-            
-            // 更新全局变量
-            g_use24Hour = newUse24Hour;
-            g_showDate = newShowDate;
-            g_showSeconds = newShowSeconds;
-            g_showYear = newShowYear;
-            g_theme = newTheme;
-            g_windowSize = newWindowSize;
-            g_position = newPosition;
-            g_autoHide = newAutoHide;
-            g_hideDelayMinutes = newHideDelayMinutes;
-            g_hideDelaySeconds = newHideDelaySeconds;
-            g_fontSize = newFontSize;
-            g_boldFont = newBoldFont;
-            
-            SaveSettings();
-            
-            if (oldAutoHide && !g_autoHide)
-            {
-                KillTimer(g_hwnd, 2);
-                KillTimer(g_hwnd, 4);
-                g_isHidden = false;
-                g_isHovering = false;
-                g_isAnimating = false;
-                g_waitingForHide = false;
-                g_isHiding = false;
-                // 重置动画位置
-                RECT workArea;
-                SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
-                g_animationY = workArea.top + 10;
-            }
-
-            if (!oldAutoHide && g_autoHide)
-            {
-                g_isHidden = false;
-                g_isHovering = false;
-                g_isAnimating = false;
-                g_waitingForHide = false;
-                g_isHiding = false;
-                // 重置动画位置
-                RECT workArea;
-                SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
-                g_animationY = workArea.top + 10;
-                UpdateWindowPosition(false);
-            }
-
-            UpdateWindowPosition(g_isHovering);
-            InvalidateRect(g_hwnd, NULL, TRUE);
-
-            EndDialog(hDlg, IDOK);
-            return TRUE;
+            settings.hideDelaySeconds =
+                ReadInt(key, L"HideDelaySeconds", settings.hideDelaySeconds);
         }
-        break;
-
-        case IDCANCEL:
-            EndDialog(hDlg, IDCANCEL);
-            return TRUE;
-
-        case IDC_RADIO_DARK:
-        case IDC_RADIO_LIGHT:
-        case IDC_RADIO_SYSTEM:
-            CheckRadioButton(hDlg, IDC_RADIO_DARK, IDC_RADIO_SYSTEM, LOWORD(wParam));
-            return TRUE;
-
-        case IDC_RADIO_24HOUR:
-        case IDC_RADIO_12HOUR:
-            CheckRadioButton(hDlg, IDC_RADIO_24HOUR, IDC_RADIO_12HOUR, LOWORD(wParam));
-            return TRUE;
-
-        case IDC_RADIO_SMALL:
-        case IDC_RADIO_MEDIUM:
-        case IDC_RADIO_LARGE:
-            CheckRadioButton(hDlg, IDC_RADIO_SMALL, IDC_RADIO_LARGE, LOWORD(wParam));
-            return TRUE;
-
-        case IDC_RADIO_LEFT:
-        case IDC_RADIO_CENTER:
-        case IDC_RADIO_RIGHT:
-            CheckRadioButton(hDlg, IDC_RADIO_LEFT, IDC_RADIO_RIGHT, LOWORD(wParam));
-            return TRUE;
-
-        case IDC_BTN_APPLY:
+        else
         {
-            bool oldAutoHide2 = g_autoHide;
-            
-            // 先读取所有新值
-            bool newUse24Hour = (IsDlgButtonChecked(hDlg, IDC_RADIO_24HOUR) == BST_CHECKED);
-            bool newShowDate = (IsDlgButtonChecked(hDlg, IDC_CHECK_DATE) == BST_CHECKED);
-            bool newShowSeconds = (IsDlgButtonChecked(hDlg, IDC_CHECK_SECONDS) == BST_CHECKED);
-            bool newShowYear = (IsDlgButtonChecked(hDlg, IDC_CHECK_YEAR) == BST_CHECKED);
-            int newTheme = IsDlgButtonChecked(hDlg, IDC_RADIO_DARK) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_LIGHT) == BST_CHECKED ? 1 : 2);
-            int newWindowSize = IsDlgButtonChecked(hDlg, IDC_RADIO_SMALL) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_MEDIUM) == BST_CHECKED ? 1 : 2);
-            int newPosition = IsDlgButtonChecked(hDlg, IDC_RADIO_LEFT) == BST_CHECKED ? 0 : (IsDlgButtonChecked(hDlg, IDC_RADIO_CENTER) == BST_CHECKED ? 1 : 2);
-            bool newAutoHide = (IsDlgButtonChecked(hDlg, IDC_CHECK_AUTOHIDE) == BST_CHECKED);
-            
-            wchar_t minText2[32];
-            GetWindowTextW(GetDlgItem(hDlg, IDC_EDIT_HIDEDELAY_MIN), minText2, 32);
-            int newHideDelayMinutes = _wtoi(minText2);
-            
-            wchar_t secText2[32];
-            GetWindowTextW(GetDlgItem(hDlg, IDC_EDIT_HIDEDELAY_SEC), secText2, 32);
-            int newHideDelaySeconds = _wtoi(secText2);
-            
-            wchar_t fontSizeText2[32];
-            GetWindowTextW(GetDlgItem(hDlg, IDC_EDIT_FONTSIZE), fontSizeText2, 32);
-            int newFontSize2 = _wtoi(fontSizeText2);
-            
-            bool newBoldFont2 = (IsDlgButtonChecked(hDlg, IDC_CHECK_BOLD) == BST_CHECKED);
-            
-            // 检查是否需要重建字体
-            if (g_fontSize != newFontSize2 || g_boldFont != newBoldFont2 || g_showYear != newShowYear) {
-                if (g_hFont != nullptr) {
-                    DeleteObject(g_hFont);
-                    g_hFont = nullptr;
-                }
-            }
-            
-            // 更新全局变量
-            g_use24Hour = newUse24Hour;
-            g_showDate = newShowDate;
-            g_showSeconds = newShowSeconds;
-            g_showYear = newShowYear;
-            g_theme = newTheme;
-            g_windowSize = newWindowSize;
-            g_position = newPosition;
-            g_autoHide = newAutoHide;
-            g_hideDelayMinutes = newHideDelayMinutes;
-            g_hideDelaySeconds = newHideDelaySeconds;
-            g_fontSize = newFontSize2;
-            g_boldFont = newBoldFont2;
-            
-            SaveSettings();
-            
-            if (oldAutoHide2 && !g_autoHide)
-            {
-                KillTimer(g_hwnd, 2);
-                KillTimer(g_hwnd, 4);
-                g_isHidden = false;
-                g_isHovering = false;
-                g_isAnimating = false;
-                g_waitingForHide = false;
-                g_isHiding = false;
-                // 重置动画位置
-                RECT workArea;
-                SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
-                g_animationY = workArea.top + 10;
-            }
-
-            if (!oldAutoHide2 && g_autoHide)
-            {
-                g_isHidden = false;
-                g_isHovering = false;
-                g_isAnimating = false;
-                g_waitingForHide = false;
-                g_isHiding = false;
-                // 重置动画位置
-                RECT workArea;
-                SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
-                g_animationY = workArea.top + 10;
-                UpdateWindowPosition(false);
-            }
-
-            UpdateWindowPosition(g_isHovering);
-            InvalidateRect(g_hwnd, NULL, TRUE);
-
-            return TRUE;
+            // Migration from the pre-5.0 pair HideDelayMinutes + HideDelaySeconds.
+            const int legacyMinutes = ReadInt(key, L"HideDelayMinutes", 0);
+            const int legacySeconds = ReadInt(key, L"HideDelaySeconds", 1);
+            settings.hideDelaySeconds =
+                legacyMinutes * 60 + ClampInt(legacySeconds, 0, 59);
         }
-        break;
-        case IDC_BTN_CLOSE:
-            EndDialog(hDlg, IDCANCEL);
-            PostMessage(g_hwnd, WM_CLOSE, 0, 0);
-            return TRUE;
 
-        }  // 关闭 switch(LOWORD(wParam))
-        break;
-
-    case WM_CLOSE:
-        EndDialog(hDlg, IDCANCEL);
-        return TRUE;
+        RegCloseKey(key);
     }
-    return FALSE;
+
+    ValidateSettings(settings);
+    g_settings = settings;
+
+    // The auto-start entry is the source of truth, not a stored flag.
+    g_settings.autoStart = IsAutoStartEnabled();
 }
 
-void ShowSettingsDialog()
+bool SaveSettings()
 {
-    HRSRC hRsrc = FindResourceW(GetModuleHandle(NULL), MAKEINTRESOURCEW(IDD_SETTINGS_DIALOG), (LPCWSTR)RT_DIALOG);
-    if (!hRsrc)
+    ValidateSettings(g_settings);
+
+    HKEY key = nullptr;
+    LONG result = RegCreateKeyExW(HKEY_CURRENT_USER, kSettingsRegistryKey, 0, nullptr,
+                                  REG_OPTION_NON_VOLATILE, KEY_READ | KEY_WRITE, nullptr,
+                                  &key, nullptr);
+    if (result != ERROR_SUCCESS || key == nullptr)
+        return false;
+
+    WriteDword(key, L"SettingsVersion", kSettingsVersion);
+    WriteBool(key, L"Use24Hour", g_settings.use24Hour);
+    WriteBool(key, L"ShowSeconds", g_settings.showSeconds);
+    WriteBool(key, L"ShowAmPm", g_settings.showAmPm);
+    WriteBool(key, L"ShowDate", g_settings.showDate);
+    WriteBool(key, L"ShowYear", g_settings.showYear);
+    WriteBool(key, L"ShowWeekday", g_settings.showWeekday);
+    WriteInt(key, L"DateFormat", g_settings.dateFormat);
+    WriteInt(key, L"Theme", g_settings.theme);
+    WriteInt(key, L"WindowSize", g_settings.windowSize);
+    WriteInt(key, L"Position", g_settings.position);
+    WriteInt(key, L"CustomX", g_settings.customX);
+    WriteInt(key, L"CustomY", g_settings.customY);
+    WriteBool(key, L"AutoHide", g_settings.autoHide);
+    WriteInt(key, L"HideDelaySeconds", g_settings.hideDelaySeconds);
+    WriteBool(key, L"HideOnFullscreen", g_settings.hideOnFullscreen);
+    WriteInt(key, L"FontSize", g_settings.fontSize);
+    WriteBool(key, L"BoldFont", g_settings.boldFont);
+    WriteInt(key, L"Opacity", g_settings.opacity);
+
+    // Legacy values are no longer used once the new schema has been written.
+    DeleteValue(key, L"HideDelayMinutes");
+
+    RegCloseKey(key);
+
+    SetAutoStartEnabled(g_settings.autoStart);
+    return true;
+}
+
+bool IsAutoStartEnabled()
+{
+    wchar_t value[MAX_PATH * 2] = {};
+    DWORD size = sizeof(value);
+    DWORD type = 0;
+    const LONG result = RegGetValueW(HKEY_CURRENT_USER, kRunRegistryKey, L"DynamicIsland",
+                                     RRF_RT_REG_SZ, &type, value, &size);
+    return result == ERROR_SUCCESS;
+}
+
+void SetAutoStartEnabled(bool enabled)
+{
+    if (enabled)
     {
-        MessageBoxW(g_hwnd, L"Dialog resource not found!", L"Error", MB_OK | MB_ICONERROR);
-        return;
+        wchar_t modulePath[MAX_PATH] = {};
+        const DWORD length = GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
+        if (length == 0 || length >= MAX_PATH)
+            return;
+
+        std::wstring command = L"\"";
+        command += modulePath;
+        command += L"\"";
+
+        HKEY key = nullptr;
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, kRunRegistryKey, 0, nullptr,
+                            REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &key,
+                            nullptr) == ERROR_SUCCESS)
+        {
+            RegSetValueExW(key, L"DynamicIsland", 0, REG_SZ,
+                           reinterpret_cast<const BYTE*>(command.c_str()),
+                           static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)));
+            RegCloseKey(key);
+        }
     }
-
-    INT_PTR result = DialogBoxParamW(
-        GetModuleHandle(NULL),
-        MAKEINTRESOURCEW(IDD_SETTINGS_DIALOG),
-        g_hwnd,
-        SettingsDlgProc,
-        0);
-
-    if (result == -1)
+    else
     {
-        DWORD error = GetLastError();
-        wchar_t msg[256];
-        swprintf_s(msg, 256, L"DialogBoxParamW failed! Error: %d", error);
-        MessageBoxW(g_hwnd, msg, L"Error", MB_OK | MB_ICONERROR);
+        HKEY key = nullptr;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, kRunRegistryKey, 0, KEY_SET_VALUE, &key) ==
+            ERROR_SUCCESS)
+        {
+            RegDeleteValueW(key, L"DynamicIsland");
+            RegCloseKey(key);
+        }
     }
 }

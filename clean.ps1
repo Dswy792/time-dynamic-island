@@ -1,10 +1,22 @@
-# Uninstall Script - Complete Removal of Dynamic Island
-# Usage: .\clean.ps1 [-Force] [-Confirm]
+# Dynamic Island v5.0.0 - Uninstall Script
+# Removes the built program, build artifacts, the auto-start entry and the
+# HKCU\SOFTWARE\DynamicIsland settings of the current user.
+# Usage: .\clean.ps1
+# (-Force / -Confirm are accepted for compatibility but the script is already
+#  non-interactive; it never prompts and never deletes outside the workspace)
+#
+# Safety: every path handled below is relative to the folder that contains this
+# script (it is pinned with Set-Location $PSScriptRoot), so the uninstaller only
+# touches files inside the project workspace. No system folder is ever scanned.
 
 param(
     [switch]$Force,    # Force uninstall without confirmation
     [switch]$Confirm   # Ask for confirmation before uninstall
 )
+
+# Pin the working directory to the project folder; never delete relative to the
+# caller's current directory.
+Set-Location -LiteralPath $PSScriptRoot
 
 $ErrorActionPreference = "SilentlyContinue"
 [ArrayList]$uninstallReport = @()
@@ -123,7 +135,13 @@ Write-Host ""
 # Step 3: Delete registry configuration
 Write-Host "Step 3: Deleting registry configuration..." -ForegroundColor Yellow
 
-# Delete DynamicIsland settings
+# Dynamic Island v5.0.0 stores the complete settings schema under this key
+# (SettingsVersion = 2):
+#   Use24Hour, ShowSeconds, ShowAmPm, ShowDate, ShowYear, ShowWeekday,
+#   DateFormat, Theme, WindowSize, Position, CustomX, CustomY, AutoHide,
+#   HideDelaySeconds, HideOnFullscreen, FontSize, BoldFont, Opacity
+# The auto-start preference is not stored here: it lives in the Run key that is
+# removed in Step 4.
 $regPath = "HKCU:\SOFTWARE\DynamicIsland"
 if (Test-Path $regPath) {
     try {
@@ -145,6 +163,8 @@ Write-Host ""
 # Step 4: Delete startup entry
 Write-Host "Step 4: Deleting startup entry..." -ForegroundColor Yellow
 
+# v5 only writes this value when the user explicitly enables "Start with
+# Windows"; the value is created/removed by the app itself.
 $startupPath = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
 try {
     $startupValue = Get-ItemProperty -Path $startupPath -Name "DynamicIsland" -ErrorAction Stop

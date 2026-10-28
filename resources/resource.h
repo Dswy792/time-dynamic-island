@@ -1,42 +1,9 @@
 #ifndef RESOURCE_H
 #define RESOURCE_H
 
-// Dialog ID
-#define IDD_SETTINGS_DIALOG 101
+// Application icon (all sizes live inside app.ico).
+#define IDI_APP_ICON 102
 
-// Control IDs
-#define IDC_RADIO_24HOUR    201
-#define IDC_RADIO_12HOUR    202
-#define IDC_CHECK_DATE      203
-#define IDC_CHECK_SECONDS   204
-#define IDC_CHECK_YEAR      205
-#define IDC_RADIO_DARK      206
-#define IDC_RADIO_LIGHT     207
-#define IDC_RADIO_SYSTEM    208
-#define IDC_GROUP_TIME      209
-#define IDC_GROUP_DISPLAY   210
-#define IDC_GROUP_THEME     211
-#define IDC_BTN_APPLY       212
-#define IDC_GROUP_SIZE      213
-#define IDC_RADIO_SMALL     214
-#define IDC_RADIO_MEDIUM    215
-#define IDC_RADIO_LARGE     216
-#define IDC_GROUP_POSITION  217
-#define IDC_RADIO_LEFT      218
-#define IDC_RADIO_CENTER    219
-#define IDC_RADIO_RIGHT     220
-#define IDC_GROUP_HIDE      221
-#define IDC_CHECK_AUTOHIDE  222
-#define IDC_EDIT_HIDEDELAY_MIN  223
-#define IDC_EDIT_HIDEDELAY_SEC  224
-#define IDC_SPIN_HIDEDELAY  225
-#define IDC_GROUP_FONT      226
-#define IDC_EDIT_FONTSIZE   227
-#define IDC_SPIN_FONTSIZE   228
-#define IDC_CHECK_BOLD      229
-#define IDC_BTN_CLOSE       230
-
-// 应用程序图标
-#define IDI_APP_ICON        102
+// The embedded application manifest id is 1 (CREATEPROCESS_MANIFEST_RESOURCE_ID).
 
 #endif // RESOURCE_H

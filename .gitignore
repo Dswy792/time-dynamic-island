@@ -1,5 +1,6 @@
 # Build directories
 build/
+builds/
 cmake-build-*/
 bin/
 obj/
@@ -12,13 +13,12 @@ obj/
 *.ilk
 *.pdb
 
-# Executables (ensure none are created)
-# Exception: Allow DynamicIsland.exe
-!DynamicIsland.exe
+# Executables are not committed; build them with build.ps1
 *.exe
 *.dll
 *.so
 *.dylib
+*.lnk
 
 # IDE files
 .vscode/
