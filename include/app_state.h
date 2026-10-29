@@ -49,6 +49,7 @@ constexpr UINT kTimerContent = 1;     // periodic clock change detection
 constexpr UINT kTimerAutoHide = 2;    // mouse / fullscreen auto-hide monitor
 constexpr UINT kTimerAnimation = 3;   // animation tick (~60 fps)
 constexpr UINT kTimerTray = 4;        // tray tooltip refresh
+constexpr UINT kTimerNotificationDismiss = 5; // hide the message peek again
 
 constexpr UINT kTrayCallbackMessage = WM_APP + 1;
 constexpr UINT kMsgShowSettings = WM_APP + 2;     // second instance / tray icon
@@ -56,6 +57,7 @@ constexpr UINT kMsgApplySettings = WM_APP + 3;    // settings dialog finished ap
 constexpr UINT kMsgRefreshTheme = WM_APP + 4;     // system theme changed
 constexpr UINT kMsgRequestExit = WM_APP + 5;      // exit requested by UI component
 constexpr UINT kMsgIslandClicked = WM_APP + 6;    // reserved for future use
+constexpr UINT kMsgNotification = WM_APP + 7;     // notifications module -> UI thread
 
 // Numeric ranges (shared with the settings UI)
 constexpr int kFontSizeMin = 9;
@@ -64,6 +66,11 @@ constexpr int kOpacityMin = 55;
 constexpr int kOpacityMax = 100;
 constexpr int kHideDelayMinSeconds = 0;
 constexpr int kHideDelayMaxSeconds = 3600;
+
+// Message notification options
+constexpr int kNotifyPeekSecondsMin = 2;
+constexpr int kNotifyPeekSecondsMax = 10;
+constexpr int kNotifyPeekSecondsDefault = 5;
 
 constexpr int kTooltipRefreshIntervalMs = 20000;
 constexpr int kAutoHideCheckIntervalMs = 100;
@@ -94,6 +101,13 @@ struct AppSettings
     bool boldFont = true;
     bool autoStart = false;
     int opacity = 100; // 55..100 percent -> capsule alpha
+
+    // New message notifications from WeChat / QQ (Windows toast listener).
+    bool notifyEnable = true;
+    bool notifyShowContent = true;
+    bool notifyWeChat = true;
+    bool notifyQQ = true;
+    int notifyPeekSeconds = kNotifyPeekSecondsDefault; // 2..10 seconds
 };
 
 extern AppSettings g_settings;

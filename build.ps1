@@ -91,10 +91,15 @@ if ($LASTEXITCODE -ne 0) {
 # Compile sources
 # ---------------------------------------------------------------------------
 Write-Host "Compiling sources..." -ForegroundColor Green
+# C++/WinRT headers shipped with the Windows SDK (notification listener).
+$cppwinrtInclude = Join-Path $env:WindowsSdkDir ("Include\" + $env:WindowsSDKVersion + "cppwinrt")
+if (-not (Test-Path $cppwinrtInclude)) {
+    Write-Host "WARNING: C++/WinRT headers not found at $cppwinrtInclude" -ForegroundColor Yellow
+}
 $commonFlags = @(
     "/c", "/nologo", "/O2", "/GL", "/EHsc", "/std:c++17", "/W4", "/utf-8",
     "/DNOMINMAX", "/DUNICODE", "/D_UNICODE",
-    "/Iinclude", "/Iresources"
+    "/Iinclude", "/Iresources", "/external:I$cppwinrtInclude", "/external:W0"
 )
 $sources = Get-ChildItem -Path "src" -Filter "*.cpp" | Sort-Object Name
 foreach ($source in $sources) {
@@ -135,7 +140,7 @@ $objects = Get-ChildItem -Path $objDir -Filter "*.obj" | ForEach-Object { $_.Ful
 & link.exe /nologo /OUT:DynamicIsland.exe /SUBSYSTEM:WINDOWS "/ENTRY:wWinMainCRTStartup" `
     /OPT:REF /OPT:ICF /LTCG $objects $resFile `
     shell32.lib user32.lib gdi32.lib gdiplus.lib ole32.lib comctl32.lib `
-    dwmapi.lib advapi32.lib
+    dwmapi.lib advapi32.lib windowsapp.lib runtimeobject.lib
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Linking failed." -ForegroundColor Red
     exit 1

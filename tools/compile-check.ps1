@@ -42,6 +42,12 @@ foreach ($line in $envOutput) {
     }
 }
 
+# C++/WinRT headers from the Windows SDK (used by the notification listener).
+$cppwinrtInclude = Join-Path $env:WindowsSdkDir ("Include\" + $env:WindowsSDKVersion + "cppwinrt")
+if (-not (Test-Path $cppwinrtInclude)) {
+    Write-Host "WARNING: C++/WinRT headers not found at $cppwinrtInclude" -ForegroundColor Yellow
+}
+
 $objDir = Join-Path "builds\check" $Tag
 New-Item -ItemType Directory -Force -Path $objDir | Out-Null
 
@@ -53,7 +59,7 @@ foreach ($f in $Files) {
 }
 
 Write-Host "Compile check: $($fileList -join ', ')" -ForegroundColor Cyan
-cl.exe /c /nologo /EHsc /std:c++17 /W4 /utf-8 /DNOMINMAX /DUNICODE /D_UNICODE /Iinclude /Iresources /Fo:"$objDir\\" @fileList
+cl.exe /c /nologo /EHsc /std:c++17 /W4 /utf-8 /DNOMINMAX /DUNICODE /D_UNICODE /Iinclude /Iresources "/external:I$cppwinrtInclude" /external:W0 /Fo:"$objDir\\" @fileList
 $exit = $LASTEXITCODE
 if ($exit -ne 0) {
     Write-Host "COMPILE FAILED (exit $exit)" -ForegroundColor Red

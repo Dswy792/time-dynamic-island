@@ -6,18 +6,23 @@
 #include <cmath>
 
 #include "app_state.h"
+#include "notifications.h"
 #include "rendering.h"
 
 namespace
 {
 constexpr float kHoverDurationMs = 170.0f;
 constexpr float kHideDurationMs = 260.0f;
+constexpr float kSubIslandShowMs = 220.0f;
+constexpr float kSubIslandHideMs = 180.0f;
 
 HWND s_hwnd = nullptr;
 bool s_hoverTarget = false;
 bool s_hiddenTarget = false;
+bool s_subTarget[kNotificationSourceCount] = {false, false};
 float s_hover = 0.0f;
 float s_hide = 0.0f;
+float s_sub[kNotificationSourceCount] = {0.0f, 0.0f};
 ULONGLONG s_lastTick = 0;
 bool s_timerRunning = false;
 
@@ -69,6 +74,11 @@ void InitIslandAnimation(HWND hwnd)
     s_hiddenTarget = false;
     s_hover = 0.0f;
     s_hide = 0.0f;
+    for (int i = 0; i < kNotificationSourceCount; ++i)
+    {
+        s_subTarget[i] = false;
+        s_sub[i] = 0.0f;
+    }
     s_timerRunning = false;
 }
 
@@ -86,6 +96,40 @@ void SetIslandHiddenTarget(bool hidden)
         return;
     s_hiddenTarget = hidden;
     StartTimer();
+}
+
+void SetSubIslandTarget(int sourceIndex, bool visible)
+{
+    if (sourceIndex < 0 || sourceIndex >= kNotificationSourceCount)
+        return;
+    if (s_subTarget[sourceIndex] == visible)
+        return;
+    s_subTarget[sourceIndex] = visible;
+    StartTimer();
+}
+
+bool IsSubIslandTarget(int sourceIndex)
+{
+    if (sourceIndex < 0 || sourceIndex >= kNotificationSourceCount)
+        return false;
+    return s_subTarget[sourceIndex];
+}
+
+float GetSubIslandProgress(int sourceIndex)
+{
+    if (sourceIndex < 0 || sourceIndex >= kNotificationSourceCount)
+        return 0.0f;
+    return sourceIndex == 0 ? EaseOutCubic(s_sub[0]) : EaseOutCubic(s_sub[1]);
+}
+
+bool IsAnySubIslandVisible()
+{
+    for (int i = 0; i < kNotificationSourceCount; ++i)
+    {
+        if (s_subTarget[i] || s_sub[i] > 0.001f)
+            return true;
+    }
+    return false;
 }
 
 bool IsIslandHoverTarget()
@@ -132,8 +176,18 @@ void UpdateIslandAnimation()
     s_hover = MoveTowards(s_hover, s_hoverTarget ? 1.0f : 0.0f, hoverStep);
     s_hide = MoveTowards(s_hide, s_hiddenTarget ? 1.0f : 0.0f, hideStep);
 
-    const bool settled = s_hover == (s_hoverTarget ? 1.0f : 0.0f) &&
-                         s_hide == (s_hiddenTarget ? 1.0f : 0.0f);
+    bool settled = s_hover == (s_hoverTarget ? 1.0f : 0.0f) &&
+                   s_hide == (s_hiddenTarget ? 1.0f : 0.0f);
+    for (int i = 0; i < kNotificationSourceCount; ++i)
+    {
+        const float step =
+            deltaMs / (s_subTarget[i] ? kSubIslandShowMs : kSubIslandHideMs);
+        s_sub[i] = MoveTowards(s_sub[i], s_subTarget[i] ? 1.0f : 0.0f,
+                               std::min(1.0f, step));
+        if (s_sub[i] != (s_subTarget[i] ? 1.0f : 0.0f))
+            settled = false;
+    }
+
     if (settled)
         StopTimer();
 
@@ -144,6 +198,8 @@ void FinishIslandAnimation()
 {
     s_hover = s_hoverTarget ? 1.0f : 0.0f;
     s_hide = s_hiddenTarget ? 1.0f : 0.0f;
+    for (int i = 0; i < kNotificationSourceCount; ++i)
+        s_sub[i] = s_subTarget[i] ? 1.0f : 0.0f;
     StopTimer();
     RenderIslandFrame(true);
 }

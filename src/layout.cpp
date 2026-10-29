@@ -160,7 +160,32 @@ RECT GetIslandRestingCapsuleRect()
     return MakeRect(left, top, width, height);
 }
 
-IslandGeometry ComputeIslandGeometry(float hoverProgress, float hideProgress)
+namespace
+{
+RECT UnionRectCopy(const RECT& a, const RECT& b)
+{
+    if (a.right <= a.left || a.bottom <= a.top)
+        return b;
+    if (b.right <= b.left || b.bottom <= b.top)
+        return a;
+    RECT result = a;
+    result.left = std::min(a.left, b.left);
+    result.top = std::min(a.top, b.top);
+    result.right = std::max(a.right, b.right);
+    result.bottom = std::max(a.bottom, b.bottom);
+    return result;
+}
+
+bool IsEmptyRect(const RECT& rect)
+{
+    return rect.right <= rect.left || rect.bottom <= rect.top;
+}
+} // namespace
+
+IslandClusterGeometry ComputeIslandClusterGeometry(
+    float hoverProgress, float hideProgress,
+    const float subProgress[kSubIslandSourceCount], int hoveredSub,
+    bool tooltipVisible)
 {
     const RECT resting = GetIslandRestingCapsuleRect();
     const RECT workArea = GetIslandWorkArea();
@@ -171,38 +196,136 @@ IslandGeometry ComputeIslandGeometry(float hoverProgress, float hideProgress)
     const float scale = 1.0f + (kHoverScale - 1.0f) * hoverProgress;
     const int restingWidth = resting.right - resting.left;
     const int restingHeight = resting.bottom - resting.top;
-    const int capsuleWidth = std::max(1, static_cast<int>(std::lround(restingWidth * scale)));
-    const int capsuleHeight = std::max(1, static_cast<int>(std::lround(restingHeight * scale)));
+    const int capsuleWidth =
+        std::max(1, static_cast<int>(std::lround(restingWidth * scale)));
+    const int capsuleHeight =
+        std::max(1, static_cast<int>(std::lround(restingHeight * scale)));
     const int centerX = (resting.left + resting.right) / 2;
 
-    // Distance required to move the capsule (and its shadow) completely above
-    // the work area.
+    const int circleDiameter = capsuleHeight;
+    const int gap = ScaleDip(kSubIslandGapDip);
+
+    // Cluster width = main capsule + every visible sub-island (scaled by its
+    // own progress). The whole cluster is centred on the resting centre.
+    float clusterWidth = static_cast<float>(capsuleWidth);
+    float progress[kSubIslandSourceCount] = {};
+    for (int i = 0; i < kSubIslandSourceCount; ++i)
+    {
+        progress[i] = std::max(0.0f, std::min(1.0f, subProgress[i]));
+        if (progress[i] > 0.001f)
+            clusterWidth += gap * progress[i] +
+                            static_cast<float>(circleDiameter) * progress[i];
+    }
+
     const int hiddenDistance = (resting.top - workArea.top) + capsuleHeight +
                                ScaleDip(kShadowBottomDip) + ScaleDip(4);
     const int capsuleTop =
         resting.top - static_cast<int>(std::lround(hiddenDistance * hideProgress));
+    const int capsuleCenterY = capsuleTop + capsuleHeight / 2;
+    const int clusterLeft =
+        centerX - static_cast<int>(std::lround(clusterWidth / 2.0f));
 
-    IslandGeometry geometry = {};
-    geometry.capsule = MakeRect(centerX - capsuleWidth / 2, capsuleTop, capsuleWidth,
-                                capsuleHeight);
-    geometry.window = MakeRect(geometry.capsule.left - ScaleDip(kShadowHorizontalDip),
-                               geometry.capsule.top - ScaleDip(kShadowTopDip),
-                               capsuleWidth + ScaleDip(kShadowHorizontalDip) * 2,
-                               capsuleHeight + ScaleDip(kShadowTopDip) +
-                                   ScaleDip(kShadowBottomDip));
+    IslandClusterGeometry geometry = {};
     geometry.dpi = static_cast<int>(s_dpi);
+    geometry.capsule =
+        MakeRect(clusterLeft, capsuleTop, capsuleWidth, capsuleHeight);
+
+    float cursorX = static_cast<float>(geometry.capsule.right);
+    for (int i = 0; i < kSubIslandSourceCount; ++i)
+    {
+        if (progress[i] <= 0.001f)
+            continue;
+        const float diameter = static_cast<float>(circleDiameter) * progress[i];
+        const float gapWidth = static_cast<float>(gap) * progress[i];
+        const float circleCenterX = cursorX + gapWidth + diameter / 2.0f;
+        const int radius = static_cast<int>(std::lround(diameter / 2.0f));
+        const int centerY = capsuleCenterY;
+        geometry.subIslands[i] = MakeRect(
+            static_cast<int>(std::lround(circleCenterX)) - radius,
+            centerY - radius, radius * 2, radius * 2);
+        cursorX += gapWidth + diameter;
+    }
+
+    // Window = union of the shadow bands around every element.
+    RECT window = MakeRect(geometry.capsule.left - ScaleDip(kShadowHorizontalDip),
+                           geometry.capsule.top - ScaleDip(kShadowTopDip),
+                           capsuleWidth + ScaleDip(kShadowHorizontalDip) * 2,
+                           capsuleHeight + ScaleDip(kShadowTopDip) +
+                               ScaleDip(kShadowBottomDip));
+    for (int i = 0; i < kSubIslandSourceCount; ++i)
+    {
+        if (IsEmptyRect(geometry.subIslands[i]))
+            continue;
+        RECT area = geometry.subIslands[i];
+        InflateRect(&area, ScaleDip(10), ScaleDip(10));
+        area.top += ScaleDip(2);
+        area.bottom += ScaleDip(6);
+        window = UnionRectCopy(window, area);
+    }
+
+    // Message tooltip below the hovered sub-island (or below the main capsule
+    // when only the clock is hovered - not used today).
+    if (tooltipVisible && hoveredSub >= 0 && hoveredSub < kSubIslandSourceCount &&
+        !IsEmptyRect(geometry.subIslands[hoveredSub]))
+    {
+        const int tooltipWidth = ScaleDip(kSubIslandTooltipWidthDip);
+        const int tooltipHeight = ScaleDip(kSubIslandTooltipHeightDip);
+        const int centerXTooltip = (geometry.subIslands[hoveredSub].left +
+                                    geometry.subIslands[hoveredSub].right) / 2;
+        int left = centerXTooltip - tooltipWidth / 2;
+        const int top = geometry.capsule.bottom + ScaleDip(kSubIslandGapDip);
+        // Keep the tooltip attached to the window; let the window grow instead.
+        geometry.tooltip = MakeRect(left, top, tooltipWidth, tooltipHeight);
+        RECT area = geometry.tooltip;
+        InflateRect(&area, ScaleDip(12), ScaleDip(6));
+        area.bottom += ScaleDip(10);
+        window = UnionRectCopy(window, area);
+    }
+
+    // Keep the whole composition inside the monitor work area horizontally
+    // (a custom position near an edge must not push the message circles off
+    // screen). The visual centre rule still applies for normal positions.
+    int shiftX = 0;
+    if (window.right > workArea.right)
+        shiftX = static_cast<int>(workArea.right) - window.right;
+    if (window.left + shiftX < workArea.left)
+        shiftX = static_cast<int>(workArea.left) - window.left;
+    if (shiftX != 0)
+    {
+        OffsetRect(&geometry.capsule, shiftX, 0);
+        for (int i = 0; i < kSubIslandSourceCount; ++i)
+        {
+            if (!IsEmptyRect(geometry.subIslands[i]))
+                OffsetRect(&geometry.subIslands[i], shiftX, 0);
+        }
+        if (!IsEmptyRect(geometry.tooltip))
+            OffsetRect(&geometry.tooltip, shiftX, 0);
+        OffsetRect(&window, shiftX, 0);
+    }
+
+    geometry.window = window;
     return geometry;
 }
 
-RECT GetIslandTriggerRect()
+RECT GetIslandClusterTriggerRect()
 {
     RECT trigger = GetIslandRestingCapsuleRect();
     const int padding = ScaleDip(kTriggerPaddingDip);
     InflateRect(&trigger, padding, padding);
 
+    // Reserve room for two sub-islands on the right and the tooltip below.
+    const int restingHeightPx = trigger.bottom - trigger.top - 2 * padding;
+    const int circleDiameter = restingHeightPx;
+    const int gap = ScaleDip(kSubIslandGapDip);
+    trigger.right +=
+        (gap + circleDiameter) * kSubIslandSourceCount + ScaleDip(10);
+    trigger.bottom += ScaleDip(kSubIslandTooltipHeightDip) + ScaleDip(20);
+
     const RECT workArea = GetIslandWorkArea();
     if (trigger.top > workArea.top)
         trigger.top = workArea.top;
+    if (trigger.right > workArea.right)
+        trigger.right = workArea.right;
     return trigger;
 }
 

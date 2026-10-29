@@ -6,13 +6,16 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cwchar>
 #include <string>
 
 #include "actions.h"
 #include "animation.h"
 #include "app_state.h"
+#include "chat_watcher.h"
 #include "island.h"
 #include "layout.h"
+#include "notifications.h"
 #include "rendering.h"
 #include "resource.h"
 #include "settings.h"
@@ -42,9 +45,17 @@ ULONGLONG s_lastInsideTick = 0;
 int s_contentTickCount = 0;
 UINT s_taskbarCreatedMessage = 0;
 
+// Message sub-islands: at most one circle per source, each keeps its own dwell
+// deadline. While the mouse hovers a circle its deadline is extended so the
+// tooltip stays readable.
+ULONGLONG s_subDeadline[kNotificationSourceCount] = {0, 0};
+bool s_subDismissTimerRunning = false;
+int s_pressedSub = -1;
+int s_hoveredSub = -1;
+bool s_lastNotifyEnable = false;
+
 void ApplyDpiAwareness()
 {
-    // Per-Monitor V2 awareness keeps the capsule crisp on every monitor.
     typedef BOOL(WINAPI * SetProcessDpiAwarenessContextFn)(HANDLE);
     HMODULE user32 = GetModuleHandleW(L"user32.dll");
     if (user32 == nullptr)
@@ -73,9 +84,6 @@ void SaveSettingsQuietly()
 
 bool s_autoHideTimerRunning = false;
 
-// The 100 ms auto-hide monitor is only needed while auto-hide or fullscreen
-// hiding is enabled, which keeps the idle CPU footprint at the timer tick of
-// the clock itself.
 void UpdateAutoHideTimerState()
 {
     const bool needed = g_settings.autoHide || g_settings.hideOnFullscreen;
@@ -101,87 +109,88 @@ void RevealIsland()
     }
 }
 
-void UpdateAutoHide()
+IslandClusterGeometry CurrentClusterGeometry()
 {
-    const ULONGLONG now = GetTickCount64();
-    POINT cursor = {};
-    GetCursorPos(&cursor);
+    float progress[kNotificationSourceCount] = {GetSubIslandProgress(0),
+                                                GetSubIslandProgress(1)};
+    return ComputeIslandClusterGeometry(GetIslandHoverProgress(),
+                                        GetIslandHideProgress(), progress,
+                                        s_hoveredSub, s_hoveredSub >= 0);
+}
 
-    if (g_settings.hideOnFullscreen)
+int HitTestSubIsland(POINT screenPoint)
+{
+    if (!IsAnySubIslandVisible())
+        return -1;
+    const IslandClusterGeometry geometry = CurrentClusterGeometry();
+    float progress[kNotificationSourceCount] = {GetSubIslandProgress(0),
+                                                GetSubIslandProgress(1)};
+    for (int i = 0; i < kNotificationSourceCount; ++i)
     {
-        const bool fullscreen = IsFullscreenAppActive();
-        if (fullscreen && !IsIslandHiddenTarget())
-        {
-            s_hiddenByFullscreen = true;
-            s_hovering = false;
-            SetIslandHoverTarget(false);
-            SetIslandHiddenTarget(true);
-        }
-        else if (!fullscreen && s_hiddenByFullscreen)
-        {
-            s_hiddenByFullscreen = false;
-            SetIslandHiddenTarget(false);
-        }
+        if (progress[i] < 0.35f)
+            continue;
+        if (PointInRect(geometry.subIslands[i], screenPoint))
+            return i;
     }
-    else if (s_hiddenByFullscreen)
-    {
-        s_hiddenByFullscreen = false;
-        if (IsIslandHiddenTarget())
-            SetIslandHiddenTarget(false);
-    }
+    return -1;
+}
 
-    if (!g_settings.autoHide)
+void SetHoveredSub(int index)
+{
+    if (s_hoveredSub == index)
         return;
+    s_hoveredSub = index;
+    SetHoveredSubIsland(index);
+    InvalidateIslandContent();
+    RenderIslandFrame(true);
+}
 
-    const RECT trigger = GetIslandTriggerRect();
-    const bool inside = PointInRect(trigger, cursor);
-    if (inside)
-        s_lastInsideTick = now;
+void EndDrag(bool commit);
+void ShowIslandSettings();
 
-    if (IsIslandHiddenTarget())
+void OnLButtonDownOnIsland(POINT cursor)
+{
+    const int sub = HitTestSubIsland(cursor);
+    if (sub >= 0)
     {
-        if (inside && !s_hiddenByFullscreen)
-        {
-            SetIslandHiddenTarget(false);
-            s_hovering = true;
-            SetIslandHoverTarget(true);
-            s_lastInsideTick = now;
-        }
-        return;
-    }
-
-    // Keep the capsule visible while the user is dragging it or configuring it.
-    if (s_dragging || IsSettingsDialogOpen())
-    {
-        s_lastInsideTick = now;
+        s_pressedSub = sub;
+        SetCapture(g_hwnd);
         return;
     }
 
-    // The cursor position is authoritative (WM_MOUSELEAVE is not delivered when
-    // the window slides under a stationary pointer), so collapse the hover state
-    // as soon as the pointer leaves the trigger area.
-    if (!inside)
+    const IslandClusterGeometry geometry = CurrentClusterGeometry();
+    if (PointInRect(geometry.capsule, cursor))
     {
-        if (s_hovering)
-        {
-            s_hovering = false;
-            SetIslandHoverTarget(false);
-        }
-
-        const ULONGLONG delay =
-            static_cast<ULONGLONG>(std::max(0, g_settings.hideDelaySeconds)) * 1000ULL;
-        if (now - s_lastInsideTick >= delay)
-            SetIslandHiddenTarget(true);
+        s_dragging = true;
+        s_dragMoved = false;
+        s_dragStartCursor = cursor;
+        s_dragStartCapsule = GetIslandRestingCapsuleRect();
+        SetCapture(g_hwnd);
     }
 }
 
-void BeginDrag(POINT cursor)
+void OnLButtonUpOnIsland(POINT cursor)
 {
-    s_dragging = true;
-    s_dragMoved = false;
-    s_dragStartCursor = cursor;
-    s_dragStartCapsule = GetIslandRestingCapsuleRect();
-    SetCapture(g_hwnd);
+    if (s_pressedSub >= 0)
+    {
+        const int sub = s_pressedSub;
+        s_pressedSub = -1;
+        if (GetCapture() == g_hwnd)
+            ReleaseCapture();
+        if (HitTestSubIsland(cursor) == sub)
+        {
+            ActivateSourceApp(sub == 1 ? NotificationSource::QQ
+                                       : NotificationSource::WeChat);
+            DismissNotificationSubIsland(sub == 1 ? NotificationSource::QQ
+                                                  : NotificationSource::WeChat);
+        }
+        return;
+    }
+
+    const bool wasMoved = s_dragMoved;
+    EndDrag(true);
+    if (!wasMoved)
+        ShowIslandSettings();
 }
 
 void UpdateDrag(POINT cursor)
@@ -238,7 +247,6 @@ void EndDrag(bool commit)
     }
     else if (!commit)
     {
-        // Restore the capsule to its previous location (usually a click).
         g_settings.customX = s_dragStartCapsule.left;
         g_settings.customY = s_dragStartCapsule.top;
         if (s_dragStartCapsule.left == -100000)
@@ -248,6 +256,129 @@ void EndDrag(bool commit)
         }
         RenderIslandFrame(true);
     }
+}
+
+void UpdateAutoHide()
+{
+    const ULONGLONG now = GetTickCount64();
+    POINT cursor = {};
+    GetCursorPos(&cursor);
+
+    // Keep the island on screen while message circles are visible.
+    if (IsAnySubIslandVisible())
+    {
+        s_lastInsideTick = now;
+        return;
+    }
+
+    if (g_settings.hideOnFullscreen)
+    {
+        const bool fullscreen = IsFullscreenAppActive();
+        if (fullscreen && !IsIslandHiddenTarget())
+        {
+            s_hiddenByFullscreen = true;
+            s_hovering = false;
+            SetIslandHoverTarget(false);
+            SetIslandHiddenTarget(true);
+        }
+        else if (!fullscreen && s_hiddenByFullscreen)
+        {
+            s_hiddenByFullscreen = false;
+            SetIslandHiddenTarget(false);
+        }
+    }
+    else if (s_hiddenByFullscreen)
+    {
+        s_hiddenByFullscreen = false;
+        if (IsIslandHiddenTarget())
+            SetIslandHiddenTarget(false);
+    }
+
+    if (!g_settings.autoHide)
+        return;
+
+    const RECT trigger = GetIslandClusterTriggerRect();
+    const bool inside = PointInRect(trigger, cursor);
+    if (inside)
+        s_lastInsideTick = now;
+
+    if (IsIslandHiddenTarget())
+    {
+        if (inside && !s_hiddenByFullscreen)
+        {
+            SetIslandHiddenTarget(false);
+            s_hovering = true;
+            SetIslandHoverTarget(true);
+            s_lastInsideTick = now;
+        }
+        return;
+    }
+
+    if (s_dragging || IsSettingsDialogOpen())
+    {
+        s_lastInsideTick = now;
+        return;
+    }
+
+    if (!inside)
+    {
+        if (s_hovering)
+        {
+            s_hovering = false;
+            SetIslandHoverTarget(false);
+        }
+
+        const ULONGLONG delay =
+            static_cast<ULONGLONG>(std::max(0, g_settings.hideDelaySeconds)) * 1000ULL;
+        if (now - s_lastInsideTick >= delay)
+            SetIslandHiddenTarget(true);
+    }
+}
+
+void StartSubDismissTimer()
+{
+    if (s_subDismissTimerRunning)
+        return;
+    SetTimer(g_hwnd, kTimerNotificationDismiss, 250, nullptr);
+    s_subDismissTimerRunning = true;
+}
+
+void StopSubDismissTimerIfIdle()
+{
+    if (!s_subDismissTimerRunning)
+        return;
+    for (int i = 0; i < kNotificationSourceCount; ++i)
+    {
+        if (IsSubIslandTarget(i))
+            return;
+    }
+    KillTimer(g_hwnd, kTimerNotificationDismiss);
+    s_subDismissTimerRunning = false;
+}
+
+void CheckSubIslandDeadlines()
+{
+    const ULONGLONG now = GetTickCount64();
+    for (int i = 0; i < kNotificationSourceCount; ++i)
+    {
+        if (!IsSubIslandTarget(i))
+            continue;
+        if (s_hoveredSub == i)
+        {
+            // Keep the hovered circle (and its tooltip) alive a bit longer.
+            s_subDeadline[i] = now + 2000;
+            continue;
+        }
+        if (now >= s_subDeadline[i])
+        {
+            SetSubIslandTarget(i, false);
+            if (s_hoveredSub == i)
+                SetHoveredSub(-1);
+            InvalidateIslandContent();
+            RenderIslandFrame(true);
+        }
+    }
+    StopSubDismissTimerIfIdle();
 }
 
 void ShowIslandSettings()
@@ -299,16 +430,122 @@ void RefreshFromSystemTheme()
     RefreshSettingsDialog();
 }
 
+// ---------------------------------------------------------------------------
+// Messaging app activation
+// ---------------------------------------------------------------------------
+bool ProcessExeMatches(DWORD processId, const wchar_t* const* names, int count)
+{
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
+                                 processId);
+    if (process == nullptr)
+        return false;
+
+    wchar_t path[MAX_PATH] = {};
+    DWORD size = MAX_PATH;
+    const BOOL ok = QueryFullProcessImageNameW(process, 0, path, &size);
+    CloseHandle(process);
+    if (!ok)
+        return false;
+
+    const wchar_t* base = wcsrchr(path, L'\\');
+    base = (base != nullptr) ? base + 1 : path;
+    for (int index = 0; index < count; ++index)
+    {
+        if (_wcsicmp(base, names[index]) == 0)
+            return true;
+    }
+    return false;
+}
+
+struct WindowSearch
+{
+    NotificationSource source;
+    HWND visibleResult;
+    HWND hiddenResult;
+};
+
+BOOL CALLBACK FindMessagingWindowProc(HWND hwnd, LPARAM param)
+{
+    WindowSearch* search = reinterpret_cast<WindowSearch*>(param);
+    if (GetWindow(hwnd, GW_OWNER) != nullptr)
+        return TRUE;
+
+    RECT rect = {};
+    if (!GetWindowRect(hwnd, &rect))
+        return TRUE;
+    // A minimised Qt/Chromium window reports a tiny taskbar-sized rectangle, so
+    // only apply the size filter to windows that are not minimised.
+    if (!IsIconic(hwnd) &&
+        (rect.right - rect.left < 160 || rect.bottom - rect.top < 120))
+        return TRUE;
+
+    DWORD processId = 0;
+    GetWindowThreadProcessId(hwnd, &processId);
+    if (processId == 0)
+        return TRUE;
+
+    wchar_t className[256] = {};
+    if (GetClassNameW(hwnd, className, 256) == 0)
+        return TRUE;
+
+    if (search->source == NotificationSource::WeChat)
+    {
+        const wchar_t* names[] = {L"Weixin.exe", L"WeChat.exe", L"WeixinApp.exe"};
+        if (!ProcessExeMatches(processId, names, 3))
+            return TRUE;
+        // Only the real main window (Qt51514QWindowIcon), never the tray-icon
+        // message helper window.
+        if (wcsstr(className, L"QWindowIcon") == nullptr)
+            return TRUE;
+    }
+    else if (search->source == NotificationSource::QQ)
+    {
+        const wchar_t* names[] = {L"QQ.exe"};
+        if (!ProcessExeMatches(processId, names, 1))
+            return TRUE;
+        if (wcscmp(className, L"Chrome_WidgetWin_1") != 0)
+            return TRUE;
+    }
+    else
+    {
+        return TRUE;
+    }
+
+    if (IsWindowVisible(hwnd))
+    {
+        search->visibleResult = hwnd;
+        return FALSE;
+    }
+
+    if (search->hiddenResult == nullptr)
+        search->hiddenResult = hwnd;
+    return TRUE;
+}
+
+// ---------------------------------------------------------------------------
+// Notification handling
+// ---------------------------------------------------------------------------
+void OnAppNotification(const AppNotification& notification)
+{
+    if (!g_settings.notifyEnable)
+        return;
+    if (notification.source == NotificationSource::WeChat && !g_settings.notifyWeChat)
+        return;
+    if (notification.source == NotificationSource::QQ && !g_settings.notifyQQ)
+        return;
+    if (notification.source == NotificationSource::Other)
+        return;
+
+    ShowNotificationSubIsland(notification);
+}
+
 LRESULT CALLBACK IslandWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
     case WM_PAINT:
-    {
-        // The layered window is painted through UpdateLayeredWindow.
         ValidateRect(hwnd, nullptr);
         return 0;
-    }
 
     case WM_ERASEBKGND:
         return 1;
@@ -322,13 +559,7 @@ LRESULT CALLBACK IslandWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lP
         case kTimerContent:
             ++s_contentTickCount;
             if ((s_contentTickCount % 25) == 0)
-            {
-                // Poll the system theme once every five seconds as a fallback
-                // for systems that do not broadcast a theme change message.
                 RefreshSystemThemeCache();
-            }
-            // The renderer compares text/theme/geometry itself and only repaints
-            // when something actually changed.
             RenderIslandFrame(false);
             return 0;
         case kTimerAutoHide:
@@ -339,6 +570,9 @@ LRESULT CALLBACK IslandWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lP
             return 0;
         case kTimerTray:
             UpdateTrayIcon();
+            return 0;
+        case kTimerNotificationDismiss:
+            CheckSubIslandDeadlines();
             return 0;
         default:
             return 0;
@@ -354,10 +588,30 @@ LRESULT CALLBACK IslandWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lP
             return 0;
         }
 
-        if (!s_hovering)
+        const int sub = HitTestSubIsland(cursor);
+        if (sub != s_hoveredSub)
+            SetHoveredSub(sub);
+
+        bool overMain = false;
+        if (sub < 0)
+        {
+            const IslandClusterGeometry geometry = CurrentClusterGeometry();
+            overMain = PointInRect(geometry.capsule, cursor);
+        }
+
+        if (overMain && !s_hovering)
         {
             s_hovering = true;
             SetIslandHoverTarget(true);
+        }
+        else if (!overMain && s_hovering)
+        {
+            s_hovering = false;
+            SetIslandHoverTarget(false);
+        }
+
+        if (!s_hovering)
+        {
             TRACKMOUSEEVENT track = {};
             track.cbSize = sizeof(track);
             track.dwFlags = TME_LEAVE;
@@ -370,6 +624,7 @@ LRESULT CALLBACK IslandWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lP
     case WM_MOUSELEAVE:
         s_hovering = false;
         SetIslandHoverTarget(false);
+        SetHoveredSub(-1);
         s_lastInsideTick = GetTickCount64();
         return 0;
 
@@ -377,26 +632,22 @@ LRESULT CALLBACK IslandWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lP
     {
         POINT cursor = {};
         GetCursorPos(&cursor);
-        BeginDrag(cursor);
+        OnLButtonDownOnIsland(cursor);
         return 0;
     }
 
     case WM_LBUTTONUP:
     {
-        const bool wasMoved = s_dragMoved;
-        EndDrag(true);
-        if (!wasMoved)
-            OpenDateAndTimeSettings();
+        POINT cursor = {};
+        GetCursorPos(&cursor);
+        OnLButtonUpOnIsland(cursor);
         return 0;
     }
 
     case WM_CAPTURECHANGED:
         if (s_dragging)
             EndDrag(false);
-        return 0;
-
-    case WM_RBUTTONDOWN:
-        ShowIslandSettings();
+        s_pressedSub = -1;
         return 0;
 
     case WM_SETCURSOR:
@@ -432,9 +683,7 @@ LRESULT CALLBACK IslandWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lP
 
     case WM_POWERBROADCAST:
         if (wParam == PBT_APMRESUMEAUTOMATIC || wParam == PBT_APMRESUMESUSPEND)
-        {
             RefreshFromSystemTheme();
-        }
         return TRUE;
 
     case WM_ENDSESSION:
@@ -463,6 +712,10 @@ LRESULT CALLBACK IslandWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lP
         DestroyWindow(hwnd);
         return 0;
 
+    case kMsgNotification:
+        HandleNotificationMessage(wParam, lParam);
+        return 0;
+
     case kTrayCallbackMessage:
         HandleTrayCallback(wParam, lParam);
         return 0;
@@ -475,7 +728,10 @@ LRESULT CALLBACK IslandWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lP
         KillTimer(hwnd, kTimerContent);
         KillTimer(hwnd, kTimerAutoHide);
         KillTimer(hwnd, kTimerTray);
+        KillTimer(hwnd, kTimerNotificationDismiss);
         StopIslandAnimationTimer();
+        ShutdownNotifications();
+        ShutdownChatWatcher();
         CloseSettingsDialog(false);
         DestroyTrayIcon();
         ShutdownIslandRenderer();
@@ -512,9 +768,26 @@ void ApplySettingsAndRefresh()
         }
     }
 
+    if (!g_settings.notifyEnable)
+    {
+        for (int i = 0; i < kNotificationSourceCount; ++i)
+            SetSubIslandTarget(i, false);
+    }
+    else
+    {
+        if (!g_settings.notifyWeChat)
+            SetSubIslandTarget(0, false);
+        if (!g_settings.notifyQQ)
+            SetSubIslandTarget(1, false);
+        if (!s_lastNotifyEnable)
+            RequestNotificationAccessFromUi();
+    }
+    s_lastNotifyEnable = g_settings.notifyEnable;
+
     UpdateAutoHideTimerState();
     InitIslandLayout(g_hwnd);
-    FinishIslandAnimation(); // re-render + reposition immediately
+    InvalidateIslandContent();
+    FinishIslandAnimation();
     UpdateTrayIcon();
     RefreshSettingsDialog();
 }
@@ -535,6 +808,90 @@ void RequestApplicationExit()
 void RefreshIslandFromSystemTheme()
 {
     RefreshFromSystemTheme();
+}
+
+void ShowNotificationSubIsland(const AppNotification& notification)
+{
+    const int index = NotificationSourceIndex(notification.source);
+    if (index < 0 || index >= kNotificationSourceCount)
+        return;
+
+    std::wstring title = notification.title;
+    std::wstring body = notification.body;
+    if (title.empty() && !body.empty())
+    {
+        title = body;
+        body.clear();
+    }
+    SetSubIslandContent(index, title, body);
+    SetSubIslandTarget(index, true);
+
+    const ULONGLONG dwell = static_cast<ULONGLONG>(std::clamp(
+        g_settings.notifyPeekSeconds, kNotifyPeekSecondsMin,
+        kNotifyPeekSecondsMax)) * 1000ULL;
+    s_subDeadline[index] = GetTickCount64() + dwell;
+    StartSubDismissTimer();
+
+    s_hiddenByFullscreen = false;
+    SetIslandHiddenTarget(false);
+    SetIslandHoverTarget(false);
+    s_hovering = false;
+    InvalidateIslandContent();
+    RenderIslandFrame(true);
+}
+
+void DismissNotificationSubIsland(NotificationSource source)
+{
+    const int index = NotificationSourceIndex(source);
+    if (index < 0 || index >= kNotificationSourceCount)
+        return;
+    SetSubIslandTarget(index, false);
+    if (s_hoveredSub == index)
+        SetHoveredSub(-1);
+    InvalidateIslandContent();
+    RenderIslandFrame(true);
+    StopSubDismissTimerIfIdle();
+}
+
+bool IsSubIslandActive()
+{
+    return IsAnySubIslandVisible();
+}
+
+void ActivateSourceApp(NotificationSource source)
+{
+    if (source == NotificationSource::Other)
+        return;
+
+    WindowSearch search = {};
+    search.source = source;
+    EnumWindows(FindMessagingWindowProc, reinterpret_cast<LPARAM>(&search));
+
+    HWND target = search.visibleResult;
+    if (target == nullptr)
+        target = search.hiddenResult;
+    if (target == nullptr)
+        return;
+
+    if (IsIconic(target))
+        ShowWindow(target, SW_RESTORE);
+    else if (!IsWindowVisible(target))
+        ShowWindow(target, SW_SHOW);
+
+    if (SetForegroundWindow(target) == FALSE)
+    {
+        typedef void(WINAPI * SwitchToThisWindowFn)(HWND, BOOL);
+        auto switchTo = reinterpret_cast<SwitchToThisWindowFn>(
+            GetProcAddress(GetModuleHandleW(L"user32.dll"), "SwitchToThisWindow"));
+        if (switchTo != nullptr)
+            switchTo(target, TRUE);
+    }
+    BringWindowToTop(target);
+}
+
+void RequestNotificationAccessFromUi()
+{
+    RequestNotificationAccess();
 }
 
 // ---------------------------------------------------------------------------
@@ -567,8 +924,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
 
     LoadSettings();
 
-    // Keep the Run entry pointing at this executable (the path may have moved
-    // since the user enabled auto-start).
     if (g_settings.autoStart)
         SetAutoStartEnabled(true);
 
@@ -614,6 +969,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
 
     s_taskbarCreatedMessage = RegisterWindowMessageW(L"TaskbarCreated");
     s_lastInsideTick = GetTickCount64();
+    s_lastNotifyEnable = g_settings.notifyEnable;
 
     SetTimer(g_hwnd, kTimerContent, kContentCheckIntervalMs, nullptr);
     UpdateAutoHideTimerState();
@@ -623,8 +979,47 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     ShowWindow(g_hwnd, SW_SHOWNOACTIVATE);
     InitTrayIcon(g_hwnd);
 
+    SetNotificationCallback(&OnAppNotification);
+    InitNotifications(g_hwnd);
+    InitChatWatcher(g_hwnd);
+
     if (wcsstr(GetCommandLineW(), L"--settings") != nullptr)
         PostMessageW(g_hwnd, kMsgShowSettings, 0, 0);
+
+    // Internal visual-test hook: pop a sample sub-island without waiting for a
+    // real WeChat/QQ message (used by the Lead's UI tests).
+    if (wcsstr(GetCommandLineW(), L"--test-notify") != nullptr)
+    {
+        AppNotification sample;
+        sample.id = 1;
+        sample.source = NotificationSource::WeChat;
+        sample.appId = L"Weixin.exe";
+        sample.appName = L"微信";
+        sample.title = L"张三";
+        sample.body = L"晚上八点开会，记得带上电脑和资料";
+        sample.arrivalTick = GetTickCount64();
+        if (wcsstr(GetCommandLineW(), L"--test-notify-qq") != nullptr)
+        {
+            sample.source = NotificationSource::QQ;
+            sample.appId = L"QQ";
+            sample.appName = L"QQ";
+            sample.title = L"产品群";
+            sample.body = L"李四：新版设计稿已上传，麻烦看下";
+        }
+        ShowNotificationSubIsland(sample);
+        if (wcsstr(GetCommandLineW(), L"--test-notify-both") != nullptr)
+        {
+            AppNotification second;
+            second.id = 2;
+            second.source = NotificationSource::QQ;
+            second.appId = L"QQ";
+            second.appName = L"QQ";
+            second.title = L"产品群";
+            second.body = L"李四：新版设计稿已上传，麻烦看下";
+            second.arrivalTick = GetTickCount64();
+            ShowNotificationSubIsland(second);
+        }
+    }
 
     MSG message = {};
     while (GetMessageW(&message, nullptr, 0, 0) > 0)

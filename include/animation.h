@@ -9,6 +9,13 @@ void InitIslandAnimation(HWND hwnd);
 void SetIslandHoverTarget(bool hovering);
 void SetIslandHiddenTarget(bool hidden);
 
+// Circular message sub-islands (index: 0 = WeChat, 1 = QQ). Each has its own
+// independent pop-in / pop-out animation.
+void SetSubIslandTarget(int sourceIndex, bool visible);
+bool IsSubIslandTarget(int sourceIndex);
+float GetSubIslandProgress(int sourceIndex);
+bool IsAnySubIslandVisible();
+
 bool IsIslandHoverTarget();
 bool IsIslandHiddenTarget();
 bool IsIslandAnimationRunning();

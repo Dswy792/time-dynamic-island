@@ -25,13 +25,16 @@ void ShowAboutDialog(HWND owner)
     text += L" ";
     text += APP_VERSION_STRING;
     text += L"\n\n";
-    text += L"一个优雅的 Windows 顶部时间胶囊。\n";
-    text += L"A minimalist clock capsule for the desktop.\n\n";
-    text += L"左键点击：打开系统日期和时间设置\n";
-    text += L"右键点击：打开灵动岛设置\n";
-    text += L"拖动：移动灵动岛窗口\n";
-    text += L"托盘图标：更多选项\n\n";
-    text += L"纯 Win32 + GDI+ 实现，不使用钩子、不注入进程。";
+    text += L"一个优雅的 Windows 顶部时间胶囊，支持微信 / QQ 新消息提醒。\n";
+    text += L"A clock capsule for the desktop with WeChat/QQ message alerts.\n\n";
+    text += L"左键点击：打开灵动岛设置\n";
+    text += L"拖动：移动灵动岛窗口（松手自动保存）\n";
+    text += L"新消息：灵动岛右侧弹出对应软件的圆形副岛，点击打开该软件\n";
+    text += L"悬停副岛：显示发送者与消息内容\n";
+    text += L"托盘图标：更多选项（右键菜单）\n\n";
+    text += L"微信消息通过 Windows 界面读取，QQ 消息通过 Windows 通知；\n";
+    text += L"不注入、不读内存、不访问聊天数据库。\n";
+    text += L"纯 Win32 + GDI+ 实现，不使用钩子。";
     MessageBoxW(owner, text.c_str(), L"About Dynamic Island",
                 MB_OK | MB_ICONINFORMATION);
 }

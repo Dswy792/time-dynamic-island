@@ -81,6 +81,8 @@ void ValidateSettings(AppSettings& settings)
     settings.opacity = ClampInt(settings.opacity, kOpacityMin, kOpacityMax);
     settings.hideDelaySeconds =
         ClampInt(settings.hideDelaySeconds, kHideDelayMinSeconds, kHideDelayMaxSeconds);
+    settings.notifyPeekSeconds = ClampInt(settings.notifyPeekSeconds,
+                                         kNotifyPeekSecondsMin, kNotifyPeekSecondsMax);
 
     if (settings.customX < -32000)
         settings.customX = -100000;
@@ -119,6 +121,13 @@ void LoadSettings()
         settings.fontSize = ReadInt(key, L"FontSize", settings.fontSize);
         settings.boldFont = ReadBool(key, L"BoldFont", settings.boldFont);
         settings.opacity = ReadInt(key, L"Opacity", settings.opacity);
+        settings.notifyEnable = ReadBool(key, L"NotifyEnable", settings.notifyEnable);
+        settings.notifyShowContent =
+            ReadBool(key, L"NotifyShowContent", settings.notifyShowContent);
+        settings.notifyWeChat = ReadBool(key, L"NotifyWeChat", settings.notifyWeChat);
+        settings.notifyQQ = ReadBool(key, L"NotifyQQ", settings.notifyQQ);
+        settings.notifyPeekSeconds =
+            ReadInt(key, L"NotifyPeekSeconds", settings.notifyPeekSeconds);
 
         if (version >= 2)
         {
@@ -174,6 +183,11 @@ bool SaveSettings()
     WriteInt(key, L"FontSize", g_settings.fontSize);
     WriteBool(key, L"BoldFont", g_settings.boldFont);
     WriteInt(key, L"Opacity", g_settings.opacity);
+    WriteBool(key, L"NotifyEnable", g_settings.notifyEnable);
+    WriteBool(key, L"NotifyShowContent", g_settings.notifyShowContent);
+    WriteBool(key, L"NotifyWeChat", g_settings.notifyWeChat);
+    WriteBool(key, L"NotifyQQ", g_settings.notifyQQ);
+    WriteInt(key, L"NotifyPeekSeconds", g_settings.notifyPeekSeconds);
 
     // Legacy values are no longer used once the new schema has been written.
     DeleteValue(key, L"HideDelayMinutes");
