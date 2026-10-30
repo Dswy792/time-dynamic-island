@@ -61,6 +61,8 @@ void ChatLog(const wchar_t* format, ...)
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
+bool ProcessIsWeChat(DWORD processId);
+
 std::mutex g_lifecycleMutex;
 std::thread g_worker;
 std::atomic<bool> g_running{false};
@@ -235,6 +237,23 @@ bool IsIgnoredSessionTitle(const std::wstring& title)
 bool IsIgnoredSession(const SessionItem& item)
 {
     return item.muted || IsIgnoredSessionTitle(item.title);
+}
+
+// The self file-transfer chat must always remind, even while it is the active
+// conversation: it is normally used to receive files from the phone.
+bool IsAlwaysNotifySessionTitle(const std::wstring& title)
+{
+    return title == L"文件传输助手";
+}
+
+bool IsWeChatForeground()
+{
+    const HWND foreground = GetForegroundWindow();
+    if (foreground == nullptr)
+        return false;
+    DWORD processId = 0;
+    GetWindowThreadProcessId(foreground, &processId);
+    return processId != 0 && ProcessIsWeChat(processId);
 }
 
 std::wstring StripAggregatePrefix(std::wstring text)
@@ -421,7 +440,11 @@ public:
                     ChatLog(L"skip new row (muted/official) title=%ls\n",
                             item.title.c_str());
                 }
-                else if (index == 0 && !item.selected && IsTodayTime(item.time))
+                else if (index == 0 &&
+                         (!item.selected ||
+                          IsAlwaysNotifySessionTitle(item.title) ||
+                          !IsWeChatForeground()) &&
+                         IsTodayTime(item.time))
                 {
                     EmitNotification(item.title, item.preview);
                 }
@@ -437,12 +460,22 @@ public:
                         previous->time.c_str(), item.preview.c_str(),
                         item.time.c_str(), item.selected ? 1 : 0);
             }
-            if (!changed || item.selected)
+            if (!changed)
                 continue;
 
             if (IsIgnoredSession(item))
             {
                 ChatLog(L"skip changed (muted/official) title=%ls\n",
+                        item.title.c_str());
+                continue;
+            }
+
+            // The active conversation is only skipped while the user is actually
+            // looking at WeChat; the file-transfer helper always notifies.
+            if (item.selected && !IsAlwaysNotifySessionTitle(item.title) &&
+                IsWeChatForeground())
+            {
+                ChatLog(L"skip active chat (wechat foreground) title=%ls\n",
                         item.title.c_str());
                 continue;
             }

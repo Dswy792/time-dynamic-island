@@ -1,4 +1,4 @@
-# Dynamic Island v5.2.2 - Uninstall Script
+# Dynamic Island v5.2.3 - Uninstall Script
 # Removes the built program, build artifacts, the auto-start entry and the
 # HKCU\SOFTWARE\DynamicIsland settings of the current user.
 # Usage: .\clean.ps1
@@ -135,7 +135,7 @@ Write-Host ""
 # Step 3: Delete registry configuration
 Write-Host "Step 3: Deleting registry configuration..." -ForegroundColor Yellow
 
-# Dynamic Island v5.2.2 stores the complete settings schema under this key
+# Dynamic Island v5.2.3 stores the complete settings schema under this key
 # (SettingsVersion = 2, unchanged in v5.2):
 #   Use24Hour, ShowSeconds, ShowAmPm, ShowDate, ShowYear, ShowWeekday,
 #   DateFormat, Theme, WindowSize, Position, CustomX, CustomY, AutoHide,
