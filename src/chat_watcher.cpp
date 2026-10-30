@@ -43,16 +43,17 @@ namespace
 // ---------------------------------------------------------------------------
 // Debug logging (opt-in via the DSH_ISLAND_DEBUG environment variable)
 // ---------------------------------------------------------------------------
-void ChatLog(const char* format, ...)
+void ChatLog(const wchar_t* format, ...)
 {
     if (GetEnvironmentVariableW(L"DSH_ISLAND_DEBUG", nullptr, 0) == 0)
         return;
     FILE* file = nullptr;
-    if (fopen_s(&file, "chat-watcher.log", "a") != 0 || file == nullptr)
+    if (_wfopen_s(&file, L"chat-watcher.log", L"a, ccs=UTF-8") != 0 ||
+        file == nullptr)
         return;
     va_list args;
     va_start(args, format);
-    vfprintf(file, format, args);
+    vfwprintf_s(file, format, args);
     va_end(args);
     fclose(file);
 }
@@ -73,6 +74,8 @@ struct SessionItem
     std::wstring preview;
     std::wstring time;
     bool selected = false;
+    bool muted = false;   // 消息免打扰
+    bool pinned = false;  // 已置顶 (not used for filtering)
 };
 
 // ---------------------------------------------------------------------------
@@ -190,9 +193,48 @@ bool IsTodayTime(const std::wstring& time)
     return true;
 }
 
-bool IsMarkerLine(const std::wstring& line)
+bool IsMutedLine(const std::wstring& line)
 {
-    return line == L"已置顶" || line == L"消息免打扰" || line == L"置顶";
+    return line == L"消息免打扰" || line.find(L"免打扰") != std::wstring::npos;
+}
+
+bool IsPinnedLine(const std::wstring& line)
+{
+    return line == L"已置顶" || line == L"置顶" ||
+           line.find(L"置顶") != std::wstring::npos;
+}
+
+// Sessions that should never raise an island reminder: WeChat's aggregated
+// official / subscription / service accounts, folded muted groups, payment and
+// system helper chats.
+bool IsIgnoredSessionTitle(const std::wstring& title)
+{
+    if (title.empty())
+        return false;
+
+    // A friend or group whose name merely contains these words is extremely
+    // unlikely; official account aggregates are always named exactly like this.
+    if (title.find(L"公众号") != std::wstring::npos ||
+        title.find(L"订阅号") != std::wstring::npos ||
+        title.find(L"服务号") != std::wstring::npos)
+        return true;
+
+    static const wchar_t* const ignored[] = {
+        L"折叠的群聊", L"折叠群聊", L"服务通知", L"微信支付", L"微信团队",
+        L"微信运动", L"微信收款助手", L"微信收款商业版", L"腾讯新闻",
+        L"QQ邮箱提醒", L"QQ邮箱", L"订阅号消息"
+    };
+    for (const wchar_t* name : ignored)
+    {
+        if (title == name)
+            return true;
+    }
+    return false;
+}
+
+bool IsIgnoredSession(const SessionItem& item)
+{
+    return item.muted || IsIgnoredSessionTitle(item.title);
 }
 
 std::wstring StripAggregatePrefix(std::wstring text)
@@ -219,13 +261,25 @@ SessionItem ParseSessionItem(const std::wstring& name, const std::wstring& id,
         return item;
 
     item.title = lines.front();
-    size_t index = 1;
-    while (index < lines.size() && IsMarkerLine(lines[index]))
-        ++index;
 
+    // Markers (已置顶 / 消息免打扰) can appear before OR after the preview/time
+    // lines, so collect them wherever they are and keep the rest as content.
     std::vector<std::wstring> rest;
-    for (; index < lines.size(); ++index)
-        rest.push_back(lines[index]);
+    for (size_t index = 1; index < lines.size(); ++index)
+    {
+        const std::wstring& line = lines[index];
+        if (IsMutedLine(line))
+        {
+            item.muted = true;
+            continue;
+        }
+        if (IsPinnedLine(line))
+        {
+            item.pinned = true;
+            continue;
+        }
+        rest.push_back(line);
+    }
 
     if (!rest.empty() && IsTimeLine(rest.back()))
     {
@@ -323,7 +377,7 @@ bool EmitNotification(const std::wstring& title, const std::wstring& body)
         delete payload;
         return false;
     }
-    ChatLog("emit wechat title=%ls body=%ls\n", title.c_str(), payload->body.c_str());
+    ChatLog(L"emit wechat title=%ls body=%ls\n", title.c_str(), payload->body.c_str());
     return true;
 }
 
@@ -342,7 +396,13 @@ public:
         {
             m_items = items;
             m_hasSnapshot = true;
-            ChatLog("seed %zu items\n", m_items.size());
+            ChatLog(L"seed %zu items\n", m_items.size());
+            for (const SessionItem& entry : m_items)
+            {
+                ChatLog(L"  item title=%ls muted=%d ignored=%d\n",
+                        entry.title.c_str(), entry.muted ? 1 : 0,
+                        IsIgnoredSession(entry) ? 1 : 0);
+            }
             return;
         }
 
@@ -352,12 +412,19 @@ public:
             const SessionItem* previous = FindPrevious(item.id);
             if (previous == nullptr)
             {
-                ChatLog("new row index=%zu title=%ls preview=%ls time=%ls sel=%d\n",
+                ChatLog(L"new row index=%zu title=%ls preview=%ls time=%ls sel=%d\n",
                         index, item.title.c_str(), item.preview.c_str(),
                         item.time.c_str(), item.selected ? 1 : 0);
                 // A brand new conversation row usually means a fresh chat.
-                if (index == 0 && !item.selected && IsTodayTime(item.time))
+                if (IsIgnoredSession(item))
+                {
+                    ChatLog(L"skip new row (muted/official) title=%ls\n",
+                            item.title.c_str());
+                }
+                else if (index == 0 && !item.selected && IsTodayTime(item.time))
+                {
                     EmitNotification(item.title, item.preview);
+                }
                 continue;
             }
 
@@ -365,13 +432,20 @@ public:
                                  item.time != previous->time;
             if (changed)
             {
-                ChatLog("changed index=%zu title=%ls prev=[%ls/%ls] now=[%ls/%ls] sel=%d\n",
+                ChatLog(L"changed index=%zu title=%ls prev=[%ls/%ls] now=[%ls/%ls] sel=%d\n",
                         index, item.title.c_str(), previous->preview.c_str(),
                         previous->time.c_str(), item.preview.c_str(),
                         item.time.c_str(), item.selected ? 1 : 0);
             }
             if (!changed || item.selected)
                 continue;
+
+            if (IsIgnoredSession(item))
+            {
+                ChatLog(L"skip changed (muted/official) title=%ls\n",
+                        item.title.c_str());
+                continue;
+            }
 
             const bool recent = IsTodayTime(item.time) || index == 0;
             if (recent && !item.preview.empty())
@@ -531,14 +605,14 @@ void WorkerMain()
             }
             cachedWindow = wechat;
             watcher.Reset();
-            ChatLog("wechat window %p\n", wechat);
+            ChatLog(L"wechat window %p\n", wechat);
         }
 
         if (automation != nullptr)
         {
             std::vector<SessionItem> items =
                 ReadSessions(automation, wechat, &cachedRoot, &cachedList);
-            ChatLog("poll items=%zu list=%d root=%d\n", items.size(),
+            ChatLog(L"poll items=%zu list=%d root=%d\n", items.size(),
                     cachedList != nullptr ? 1 : 0, cachedRoot != nullptr ? 1 : 0);
             if (!items.empty())
             {

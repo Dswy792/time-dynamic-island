@@ -532,6 +532,29 @@ BOOL CALLBACK FindMessagingWindowProc(HWND hwnd, LPARAM param)
 // ---------------------------------------------------------------------------
 // Notification handling
 // ---------------------------------------------------------------------------
+// QQ group / friend chats are wanted; official accounts, news feeds and
+// "看点"-style pushes are not. The toast text is the only information available
+// for QQ, so filter on well-known official-source keywords.
+bool IsIgnoredQqNotification(const AppNotification& notification)
+{
+    std::wstring text = notification.title;
+    text += L" ";
+    text += notification.body;
+
+    static const wchar_t* const ignoredKeywords[] = {
+        L"订阅号", L"公众号", L"服务号", L"QQ看点", L"看点",
+        L"QQ空间", L"空间动态", L"腾讯新闻", L"腾讯视频",
+        L"QQ邮箱", L"邮箱提醒", L"游戏中心", L"直播提醒",
+        L"会员活动", L"活动推送"
+    };
+    for (const wchar_t* keyword : ignoredKeywords)
+    {
+        if (text.find(keyword) != std::wstring::npos)
+            return true;
+    }
+    return false;
+}
+
 void OnAppNotification(const AppNotification& notification)
 {
     if (!g_settings.notifyEnable)
@@ -541,6 +564,9 @@ void OnAppNotification(const AppNotification& notification)
     if (notification.source == NotificationSource::QQ && !g_settings.notifyQQ)
         return;
     if (notification.source == NotificationSource::Other)
+        return;
+    if (notification.source == NotificationSource::QQ &&
+        IsIgnoredQqNotification(notification))
         return;
 
     ShowNotificationSubIsland(notification);
