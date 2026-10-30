@@ -67,10 +67,13 @@ constexpr int kOpacityMax = 100;
 constexpr int kHideDelayMinSeconds = 0;
 constexpr int kHideDelayMaxSeconds = 3600;
 
-// Message notification options
-constexpr int kNotifyPeekSecondsMin = 2;
+// Message notification options. The sub-island stays on the island until it is
+// clicked (or the source app is brought to the foreground); 0 disables the
+// optional auto-collapse, 1..10 = automatically collapse after that many
+// seconds.
+constexpr int kNotifyPeekSecondsMin = 0;
 constexpr int kNotifyPeekSecondsMax = 10;
-constexpr int kNotifyPeekSecondsDefault = 5;
+constexpr int kNotifyPeekSecondsDefault = 0;
 
 constexpr int kTooltipRefreshIntervalMs = 20000;
 constexpr int kAutoHideCheckIntervalMs = 100;
@@ -107,7 +110,7 @@ struct AppSettings
     bool notifyShowContent = true;
     bool notifyWeChat = true;
     bool notifyQQ = true;
-    int notifyPeekSeconds = kNotifyPeekSecondsDefault; // 2..10 seconds
+    int notifyPeekSeconds = kNotifyPeekSecondsDefault; // 0 = stay, 1..10 = auto-collapse
 };
 
 extern AppSettings g_settings;

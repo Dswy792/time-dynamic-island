@@ -432,11 +432,12 @@ void DrawSubIsland(Graphics& graphics, const RectF& circleRect, int sourceIndex,
         graphics.FillEllipse(&brush, circleRect);
     }
 
-    // Circular app logo inset by ~1.5 DIP; fall back to a colored glyph.
-    const REAL inset = std::max(1.5f, 1.5f * dpiScale);
-    RectF logoRect(circleRect.X + inset, circleRect.Y + inset,
-                   std::max(1.0f, circleRect.Width - inset * 2.0f),
-                   std::max(1.0f, circleRect.Height - inset * 2.0f));
+    // Circular app logo, noticeably smaller than the material circle so the
+    // island style stays visible around it. Falls back to a colored glyph.
+    const REAL logoDiameter = std::max(4.0f, circleRect.Width * 0.62f);
+    const RectF logoRect(circleRect.X + (circleRect.Width - logoDiameter) / 2.0f,
+                         circleRect.Y + (circleRect.Height - logoDiameter) / 2.0f,
+                         logoDiameter, logoDiameter);
     Bitmap* icon = LoadSourceIcon(sourceIndex);
     if (icon != nullptr && icon->GetWidth() > 0)
     {

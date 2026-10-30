@@ -335,25 +335,31 @@ void UpdateAutoHide()
     }
 }
 
-void StartSubDismissTimer()
+// The sub-island is persistent by default (deadline 0): it stays on screen
+// until the user clicks it or hides notifications. Only an explicit 1..10 s
+// "停留时长" arms the auto-collapse timer.
+void RefreshSubDismissTimer()
 {
-    if (s_subDismissTimerRunning)
-        return;
-    SetTimer(g_hwnd, kTimerNotificationDismiss, 250, nullptr);
-    s_subDismissTimerRunning = true;
-}
-
-void StopSubDismissTimerIfIdle()
-{
-    if (!s_subDismissTimerRunning)
-        return;
+    bool anyTimed = false;
     for (int i = 0; i < kNotificationSourceCount; ++i)
     {
-        if (IsSubIslandTarget(i))
-            return;
+        if (IsSubIslandTarget(i) && s_subDeadline[i] > 0)
+        {
+            anyTimed = true;
+            break;
+        }
     }
-    KillTimer(g_hwnd, kTimerNotificationDismiss);
-    s_subDismissTimerRunning = false;
+
+    if (anyTimed && !s_subDismissTimerRunning)
+    {
+        SetTimer(g_hwnd, kTimerNotificationDismiss, 250, nullptr);
+        s_subDismissTimerRunning = true;
+    }
+    else if (!anyTimed && s_subDismissTimerRunning)
+    {
+        KillTimer(g_hwnd, kTimerNotificationDismiss);
+        s_subDismissTimerRunning = false;
+    }
 }
 
 void CheckSubIslandDeadlines()
@@ -361,8 +367,8 @@ void CheckSubIslandDeadlines()
     const ULONGLONG now = GetTickCount64();
     for (int i = 0; i < kNotificationSourceCount; ++i)
     {
-        if (!IsSubIslandTarget(i))
-            continue;
+        if (!IsSubIslandTarget(i) || s_subDeadline[i] == 0)
+            continue; // persistent badge
         if (s_hoveredSub == i)
         {
             // Keep the hovered circle (and its tooltip) alive a bit longer.
@@ -371,6 +377,7 @@ void CheckSubIslandDeadlines()
         }
         if (now >= s_subDeadline[i])
         {
+            s_subDeadline[i] = 0;
             SetSubIslandTarget(i, false);
             if (s_hoveredSub == i)
                 SetHoveredSub(-1);
@@ -378,7 +385,7 @@ void CheckSubIslandDeadlines()
             RenderIslandFrame(true);
         }
     }
-    StopSubDismissTimerIfIdle();
+    RefreshSubDismissTimer();
 }
 
 void ShowIslandSettings()
@@ -771,18 +778,41 @@ void ApplySettingsAndRefresh()
     if (!g_settings.notifyEnable)
     {
         for (int i = 0; i < kNotificationSourceCount; ++i)
+        {
+            s_subDeadline[i] = 0;
             SetSubIslandTarget(i, false);
+        }
     }
     else
     {
         if (!g_settings.notifyWeChat)
+        {
+            s_subDeadline[0] = 0;
             SetSubIslandTarget(0, false);
+        }
         if (!g_settings.notifyQQ)
+        {
+            s_subDeadline[1] = 0;
             SetSubIslandTarget(1, false);
+        }
         if (!s_lastNotifyEnable)
             RequestNotificationAccessFromUi();
+
+        const int configured = std::clamp(g_settings.notifyPeekSeconds,
+                                          kNotifyPeekSecondsMin,
+                                          kNotifyPeekSecondsMax);
+        for (int i = 0; i < kNotificationSourceCount; ++i)
+        {
+            if (!IsSubIslandTarget(i))
+                continue;
+            s_subDeadline[i] =
+                configured > 0
+                    ? GetTickCount64() + static_cast<ULONGLONG>(configured) * 1000ULL
+                    : 0ULL;
+        }
     }
     s_lastNotifyEnable = g_settings.notifyEnable;
+    RefreshSubDismissTimer();
 
     UpdateAutoHideTimerState();
     InitIslandLayout(g_hwnd);
@@ -826,11 +856,13 @@ void ShowNotificationSubIsland(const AppNotification& notification)
     SetSubIslandContent(index, title, body);
     SetSubIslandTarget(index, true);
 
-    const ULONGLONG dwell = static_cast<ULONGLONG>(std::clamp(
-        g_settings.notifyPeekSeconds, kNotifyPeekSecondsMin,
-        kNotifyPeekSecondsMax)) * 1000ULL;
-    s_subDeadline[index] = GetTickCount64() + dwell;
-    StartSubDismissTimer();
+    const int configured = std::clamp(g_settings.notifyPeekSeconds,
+                                      kNotifyPeekSecondsMin,
+                                      kNotifyPeekSecondsMax);
+    s_subDeadline[index] =
+        configured > 0 ? GetTickCount64() + static_cast<ULONGLONG>(configured) * 1000ULL
+                       : 0ULL;
+    RefreshSubDismissTimer();
 
     s_hiddenByFullscreen = false;
     SetIslandHiddenTarget(false);
@@ -845,12 +877,13 @@ void DismissNotificationSubIsland(NotificationSource source)
     const int index = NotificationSourceIndex(source);
     if (index < 0 || index >= kNotificationSourceCount)
         return;
+    s_subDeadline[index] = 0;
     SetSubIslandTarget(index, false);
     if (s_hoveredSub == index)
         SetHoveredSub(-1);
     InvalidateIslandContent();
     RenderIslandFrame(true);
-    StopSubDismissTimerIfIdle();
+    RefreshSubDismissTimer();
 }
 
 bool IsSubIslandActive()

@@ -1001,9 +1001,14 @@ void DrawNotificationCard(Painter& painter, const DialogLayout& layout,
     }
 
     // Row 2: peek duration stepper on the left, privacy hint on the right.
+    // 0 = the sub-island stays until it is clicked (default).
     const bool notifyOn = settings.notifyEnable;
+    const std::wstring stayText =
+        settings.notifyPeekSeconds <= 0
+            ? L"常驻"
+            : ToWString(settings.notifyPeekSeconds) + L" s";
     DrawStepperRow(painter, layout.notifRows[1], layout.notifStepper, L"停留时长",
-                   ToWString(settings.notifyPeekSeconds) + L" s",
+                   stayText,
                    notifyOn &&
                        settings.notifyPeekSeconds > kNotifyPeekSecondsMin,
                    notifyOn &&
